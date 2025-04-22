@@ -242,14 +242,15 @@
   }
   
   .jobListItem {
-    border: 1px solid #e5e7eb; /* border-gray-200 */
-    padding: 1rem; /* p-4 */
-    border-radius: 0.5rem; /* rounded-lg */
+    border: 1px solid #e5e7eb;
+    padding: 1rem 1.25rem; /* Slightly more horizontal padding */
+    border-radius: 0.5rem;
     transition: box-shadow 0.2s ease-in-out;
-    background-color: white; /* Make cards distinct */
+    background-color: white; /* Changed from #f9fafb */
+    margin-bottom: 1rem; /* Added margin between items */
   }
   .jobListItem:hover {
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); /* hover:shadow-md */
+    box-shadow: 0 4px 8px -1px rgba(0, 0, 0, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.05); /* Slightly softer hover */
   }
   
   .jobTitleLink {
@@ -599,66 +600,297 @@
       margin-top: 0.5rem;
   }
 
-  /* --- List Styles --- */
+  /* Styles applied via ReactMarkdown */
+  .analysisContent h1,
+  .analysisContent h2,
+  .analysisContent h3,
+  .analysisContent h4,
+  .analysisContent h5,
+  .analysisContent h6 {
+      font-weight: 600;
+      color: #1f2937; /* gray-800 */
+      margin-top: 1.25em;
+      margin-bottom: 0.6em;
+  }
+
+  .analysisContent strong { /* General strong tag */
+      font-weight: 600;
+      color: #1f2937; /* gray-800 */
+  }
+
+  .analysisContent p {
+      margin-bottom: 0.75em;
+  }
+
   .analysisContent ul,
   .analysisContent ol {
       list-style-position: outside;
       padding-left: 1.75rem;
-      margin-top: 1em;
+      margin-top: 0.5em;
       margin-bottom: 1em;
   }
 
   .analysisContent li {
-      margin-bottom: 1.5em;
+      margin-bottom: 0.5em; /* Default spacing */
       padding-left: 0.5em;
-  }
-
-  .analysisContent li strong {
-      display: block;
-      font-weight: 600;
-      color: #1f2937;
-      margin-bottom: 0.3em;
-      font-size: 1.0em;
-  }
-
-  .analysisContent li p {
-      margin-top: 0;
-      margin-bottom: 0;
-      color: #4b5563;
-      line-height: 1.6;
-      font-size: 0.95em;
-  }
-
-  .analysisContent li > p:first-of-type {
-      margin-top: 0;
-  }
-
-  .analysisContent ol > li::marker {
-      font-weight: 600;
-      color: #1f2937;
   }
 
   .analysisContent code { background-color: #f3f4f6; padding: 0.1em 0.3em; border-radius: 0.25rem; font-family: monospace; font-size: 0.9em; }
   .analysisContent pre { white-space: pre-wrap; font-family: inherit; font-size: 0.95rem; background-color: transparent; padding: 0; margin: 0; }
   
-  
-  /* Disclaimer */
-  .disclaimer { font-size: 0.75rem; color: #6b7280; text-align: center; margin-top: 1.5rem; grid-column: 1 / -1; }
-  @media (min-width: 1280px) { .disclaimer { /* Already spans full grid width */ } }
-
-/* --- Statistics Chart Styles --- */
-.chartContainer {
-  /* Container for title + chart wrapper */
-  width: 100%;
-}
-.chartWrapper {
-  position: relative; /* Needed for chart responsiveness */
-  height: 250px; /* Default height, adjust as needed */
-  width: 100%;
-  margin-top: 0.5rem; /* Space below subtitle */
-}
-@media (min-width: 768px) {
-  .chartWrapper {
-    height: 300px; /* Taller on larger screens */
+  /* --- NEW: Tech Stack Specific Styles --- */
+  .techStackContent {
+      /* analysisContent base styles are inherited */
   }
-}
+
+  .techStackCategoryTitle { /* The **Category Name:** */
+      display: block;
+      margin-top: 1.25em; /* Space above category */
+      margin-bottom: 0.5em; /* Space below category title */
+      font-size: 1.05em;
+      font-weight: 600; /* Ensure it's bold */
+      color: #111827; /* gray-900 */
+  }
+  .techStackCategoryTitle:first-of-type {
+      margin-top: 0; /* No top margin for the very first category */
+  }
+
+  .techStackSkillList { /* The ul containing skills */
+      list-style: disc;
+      margin-top: 0;
+      margin-bottom: 1.5em; /* Space after skill list */
+      padding-left: 1.75rem; /* Keep indentation */
+  }
+
+  .techStackSkillList li { /* Individual skill li */
+      margin-bottom: 0.4em;
+      padding-left: 0; /* Reset padding from general li rule */
+      color: #4b5563; /* gray-600 */
+      font-size: 0.95rem;
+  }
+
+  .techStackPercentage { /* The (~XX%) span */
+      font-size: 0.85em;
+      color: #6b7280; /* gray-500 */
+      margin-left: 0.6em;
+      /* font-style: italic; */ /* Optional: make percentage italic */
+  }
+
+  /* --- Job Recommendations Specific Styles --- */
+  .jobRecommendationsContent ol { /* The main numbered list of jobs */
+      list-style: decimal;
+      padding-left: 1.5rem; /* Indent numbers */
+      margin: 0;
+  }
+  .jobRecommendationsContent > ol > li { /* Direct li children - each job analysis */
+      margin-bottom: 2em;
+      padding-left: 0.5em;
+      border-bottom: 1px solid #eee; /* Lighter separator */
+      padding-bottom: 1.5em;
+  }
+  .jobRecommendationsContent > ol > li:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+  }
+
+  .jobRecommendationsContent li strong:first-child { /* The linked job title */
+      display: block;
+      font-size: 1.15em; /* Even larger title */
+      margin-bottom: 0.6em; /* More space below title */
+      font-weight: 600;
+  }
+  .jobRecommendationsContent li strong:first-child a { /* Style the link itself */
+      color: #4f46e5;
+      text-decoration: none;
+      transition: color 0.15s ease;
+  }
+  .jobRecommendationsContent li strong:first-child a:hover {
+      text-decoration: underline;
+      color: #3730a3;
+  }
+
+  /* Style the nested unordered list (details/ratings/points/gaps) */
+  .jobRecommendationsContent ul {
+      list-style: none; /* Remove default bullets */
+      margin-top: 0.5em;
+      margin-bottom: 1em;
+      padding-left: 0.5rem; /* Slight indent for sections */
+  }
+  .jobRecommendationsContent ul li {
+      font-size: 0.9rem;
+      color: #4b5563;
+      margin-bottom: 0.6em;
+      padding-left: 0; /* Remove default padding */
+      line-height: 1.6;
+  }
+
+  /* Style the bolded sub-headings (Overall Fit, Ratings, Key Points, Gaps) */
+  .jobRecommendationsContent ul li strong {
+      display: block; /* Make sub-heading stand out */
+      font-weight: 600;
+      color: #374151; /* gray-700 */
+      margin-bottom: 0.3em; /* Space below sub-heading */
+      font-size: 0.95rem; /* Slightly larger sub-heading */
+  }
+  /* Target the first list item in each UL (which should be the description/explanation) */
+  .jobRecommendationsContent ul > li:first-of-type:not(:has(ul)) {
+      /* Apply only if it doesn't contain another nested list (like Ratings) */
+      margin-bottom: 1em; /* More space after main descriptions */
+  }
+
+
+  /* Style the nested list specifically for Ratings */
+  .jobRecommendationsContent ul ul { /* Select UL inside a UL */
+      list-style: none; /* No bullets for ratings */
+      padding-left: 1rem; /* Indent ratings */
+      margin-top: 0.4em;
+      margin-bottom: 1em; /* Space after ratings block */
+      background-color: #f9fafb; /* Light background for ratings */
+      border: 1px solid #f3f4f6; /* Subtle border */
+      border-radius: 4px;
+      padding-top: 0.5em;
+      padding-bottom: 0.2em;
+  }
+
+  .jobRecommendationsContent ul ul li { /* Individual rating item */
+      margin-bottom: 0.4em;
+      font-size: 0.85rem; /* Smaller font for ratings */
+  }
+  .jobRecommendationsContent ul ul li strong { /* Rating category name */
+       display: inline; /* Keep category name inline */
+       font-size: 0.85rem; /* Match surrounding text */
+       color: #1f2937; /* Slightly darker */
+       margin-right: 0.5em;
+       min-width: 140px; /* Align the values */
+       display: inline-block; /* Needed for min-width */
+  }
+
+  /* Style the rating value itself (e.g., [High/Medium/Low]) */
+  .jobRecommendationsContent ul ul li span.ratingValue { /* Needs frontend logic */
+     font-weight: 500;
+     /* Add color based on value in future if desired */
+  }
+  /* If Gemini outputs '[High]' etc. consistently, we can try attribute selectors */
+  .jobRecommendationsContent ul ul li:contains('[High]') { color: #10b981; } /* Emerald 500 */
+  .jobRecommendationsContent ul ul li:contains('[Medium]') { color: #f59e0b; } /* Amber 500 */
+  .jobRecommendationsContent ul ul li:contains('[Low]') { color: #ef4444; } /* Red 500 */
+  .jobRecommendationsContent ul ul li:contains('[Unclear]') { color: #6b7280; } /* Gray 500 */
+
+
+  /* Style Key Points / Gaps Lists */
+  .jobRecommendationsContent ul:has(li strong:contains('Key Alignment Points')),
+  .jobRecommendationsContent ul:has(li strong:contains('Potential Gaps/Concerns')) {
+      /* Target the ULs for Key Points and Gaps */
+       list-style: disc; /* Use bullets for these points */
+       padding-left: 1.75rem; /* Indent bullets */
+       margin-top: 0.4em;
+       margin-bottom: 1em;
+  }
+  .jobRecommendationsContent ul:has(li strong:contains('Key Alignment Points')) li,
+  .jobRecommendationsContent ul:has(li strong:contains('Potential Gaps/Concerns')) li {
+      font-size: 0.9rem;
+      margin-bottom: 0.4em;
+      padding-left: 0.25em;
+  }
+
+  /* ... rest of styles ... */
+  /* --- Statistics Chart Styles --- */
+  .chartContainer {
+    /* Container for title + chart wrapper */
+    width: 100%;
+  }
+  .chartWrapper {
+    position: relative; /* Needed for chart responsiveness */
+    height: 250px; /* Default height, adjust as needed */
+    width: 100%;
+    margin-top: 0.5rem; /* Space below subtitle */
+  }
+  @media (min-width: 768px) {
+    .chartWrapper {
+      height: 300px; /* Taller on larger screens */
+    }
+  }
+
+  /* Job List Item Enhancements */
+  .jobListItem {
+    border: 1px solid #e5e7eb;
+    padding: 1rem 1.25rem; /* Slightly more horizontal padding */
+    border-radius: 0.5rem;
+    transition: box-shadow 0.2s ease-in-out;
+    background-color: white; /* Changed from #f9fafb */
+    margin-bottom: 1rem; /* Added margin between items */
+  }
+  .jobListItem:hover {
+    box-shadow: 0 4px 8px -1px rgba(0, 0, 0, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.05); /* Slightly softer hover */
+  }
+
+  /* Container for action buttons within a list item */
+  .jobItemActions {
+    margin-top: 1rem; /* Space above buttons */
+    display: flex;
+    flex-wrap: wrap; /* Allow buttons to wrap on small screens */
+    gap: 0.75rem; /* Space between buttons */
+  }
+
+  /* Style for individual action buttons */
+  .jobActionButton {
+    font-size: 0.75rem !important; /* Ensure small size */
+    padding: 0.3rem 0.6rem !important; /* Adjust padding */
+    background-color: #e5e7eb; /* Lighter background - gray-200 */
+    color: #374151; /* Darker text - gray-700 */
+    font-weight: 500;
+  }
+  .jobActionButton:hover:not(:disabled) {
+    background-color: #d1d5db; /* Slightly darker hover - gray-300 */
+    color: #1f2937; /* gray-800 */
+  }
+  .jobActionButton:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+
+  /* Small loading indicator for within list items */
+  .loadingIndicatorSmall {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: #4f46e5; /* Indigo */
+  }
+
+  /* Smaller spinner */
+  .spinnerSmall {
+    animation: spin 1s linear infinite;
+    height: 1rem; /* h-4 */
+    width: 1rem; /* w-4 */
+    color: #4f46e5; /* text-indigo-600 */
+  }
+
+  /* Box to display interview questions */
+  .interviewQuestionsBox {
+    background-color: #f9fafb; /* gray-50 */
+    border: 1px solid #e5e7eb; /* gray-200 */
+    border-radius: 0.375rem; /* rounded-md */
+    padding: 0.75rem 1rem;
+  }
+  .interviewQuestionsTitle {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #1f2937; /* gray-800 */
+    margin-bottom: 0.5rem;
+  }
+  /* Ensure markdown within the questions box uses analysisContent styles */
+  .interviewQuestionsBox .analysisContent {
+    margin-top: 0; /* Remove top margin */
+    font-size: 0.85rem; /* Slightly smaller text for questions */
+  }
+  .interviewQuestionsBox .analysisContent ul,
+  .interviewQuestionsBox .analysisContent ol {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+  }
+  .interviewQuestionsBox .analysisContent li {
+     margin-bottom: 0.4em;
+  }

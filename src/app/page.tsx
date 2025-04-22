@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, Fragment } from 'react';
 import ReactMarkdown from 'react-markdown';
 // --- Chart.js Imports ---
 import {
@@ -32,6 +32,7 @@ interface JobListing {
   title: string;
   url: string;
   snippet?: string;
+  description: string;
   company_name?: string;
   location?: string;
 }
@@ -44,10 +45,21 @@ interface AnalysisResult {
   commonStack: string;
   projectIdeas: string;
   jobPrioritization: string;
-  experienceSummary: string; // Added
-  topCompanies: StatItem[];  // Added
-  topLocations: StatItem[];  // Added
+  experienceSummary: string;
+  marketInsights: string; // <-- NEW Field added
+  topCompanies: StatItem[];
+  topLocations: StatItem[];
   analysisDisclaimer: string;
+}
+
+// --- NEW: Interface for Parsed Stack Data ---
+interface ParsedSkill {
+    name: string;
+    percentage: number | null; // Store percentage as number or null if not found
+}
+interface ParsedStackCategory {
+    category: string;
+    skills: ParsedSkill[];
 }
 
 export default function Home() {
@@ -87,6 +99,14 @@ export default function Home() {
   const [errorSimilar, setErrorSimilar] = useState<string | null>(null);
   const [similarJobsResult, setSimilarJobsResult] = useState<JobListing[] | null>(null); // Stores jobs from similar API
   const [similarJobsSourceTitle, setSimilarJobsSourceTitle] = useState<string | null>(null); // To show context
+
+  // --- State for Interview Questions ---
+  const [loadingQuestions, setLoadingQuestions] = useState<Record<string, boolean>>({}); // jobUrl -> boolean
+  const [errorQuestions, setErrorQuestions] = useState<Record<string, string | null>>({}); // jobUrl -> error string or null
+  const [interviewQuestions, setInterviewQuestions] = useState<Record<string, string | null>>({}); // jobUrl -> questions string or null
+
+  // --- NEW: State for Parsed & Filtered Stack Data ---
+  const [filteredStackData, setFilteredStackData] = useState<ParsedStackCategory[]>([]);
 
   // === Derived State ===
   // Determine which list of jobs to display based on current state
@@ -159,6 +179,72 @@ export default function Home() {
           ],
       };
   };
+
+  // === Helper Function: Parse and Filter Stack ===
+  const parseAndFilterStack = (markdownString: string | undefined | null): ParsedStackCategory[] => {
+      if (!markdownString) return [];
+
+      const categories: ParsedStackCategory[] = [];
+      // Regex to find category titles (like **Category Name:**)
+      const categoryRegex = /\*\*(.*?):\*\*/g;
+      // Regex to find skills with percentages (like Skill Name (~XX%))
+      const skillRegex = /^(.*?)\s*(?:\(\s*~?(\d+)%\s*\))?$/; // Made percentage optional capture
+
+      let lastIndex = 0;
+      let categoryMatch;
+
+      // Find category blocks
+      while ((categoryMatch = categoryRegex.exec(markdownString)) !== null) {
+          const categoryName = categoryMatch[1].trim();
+          const categoryStartIndex = categoryMatch.index + categoryMatch[0].length;
+
+          // Get content between this category and the next (or end of string)
+          const nextCategoryMatch = categoryRegex.exec(markdownString);
+          const categoryEndIndex = nextCategoryMatch ? nextCategoryMatch.index : markdownString.length;
+          const categoryContent = markdownString.substring(categoryStartIndex, categoryEndIndex).trim();
+
+          // Reset regex index for next search
+          categoryRegex.lastIndex = categoryStartIndex;
+
+          const skillsRaw = categoryContent.split('\n').map(s => s.replace(/^-?\s*/, '').trim()).filter(Boolean); // Split lines, remove list markers
+          const filteredSkills: ParsedSkill[] = [];
+
+          skillsRaw.forEach(skillLine => {
+              const skillMatch = skillLine.match(skillRegex);
+              if (skillMatch) {
+                  const name = skillMatch[1].trim();
+                  // Percentage is optional, default to null if not found/parsed
+                  const percentage = skillMatch[2] ? parseInt(skillMatch[2], 10) : null;
+
+                  // Apply filtering logic: Keep if percentage is >= 10 OR if no percentage is found
+                  if (percentage === null || percentage >= 10) {
+                      filteredSkills.push({ name, percentage });
+                  }
+              } else if (skillLine) { // Keep lines that don't match regex if they exist (maybe headers or notes?)
+                  // We might want to handle these differently or ignore them
+                  // For now, let's add them without percentage if filter is only based on percentage
+                 // If we want to strictly *only* show items with >=10%, comment out the line below
+                 // filteredSkills.push({ name: skillLine, percentage: null });
+              }
+          });
+
+          if (filteredSkills.length > 0) {
+              categories.push({ category: categoryName, skills: filteredSkills });
+          }
+      }
+
+      return categories;
+  };
+
+  // --- Effect to Parse and Filter Stack Data ---
+  useEffect(() => {
+      if (analysisResult?.commonStack) {
+          const parsedData = parseAndFilterStack(analysisResult.commonStack);
+          setFilteredStackData(parsedData);
+      } else {
+          setFilteredStackData([]); // Clear if no stack data
+      }
+  }, [analysisResult?.commonStack]);
 
   // --- Effect to cycle through loading messages ---
   useEffect(() => {
@@ -336,6 +422,37 @@ export default function Home() {
       }
   }, []);
 
+  // --- NEW: Interview Questions Handler ---
+  const handleGenerateQuestions = useCallback(async (jobUrl: string, jobDescription: string) => {
+    if (!jobUrl || !jobDescription || jobDescription === 'No description available.') {
+        setErrorQuestions(prev => ({ ...prev, [jobUrl]: 'Full job description unavailable.' }));
+        return;
+    }
+
+    setLoadingQuestions(prev => ({ ...prev, [jobUrl]: true }));
+    setErrorQuestions(prev => ({ ...prev, [jobUrl]: null }));
+    setInterviewQuestions(prev => ({ ...prev, [jobUrl]: null })); // Clear previous questions
+
+    try {
+        const response = await fetch('/api/interview-questions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jobDescription }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP error! Status: ${response.status}`);
+        }
+        setInterviewQuestions(prev => ({ ...prev, [jobUrl]: data.interviewQuestions }));
+    } catch (err: any) {
+        console.error("Generate questions fetch error:", err);
+        setErrorQuestions(prev => ({ ...prev, [jobUrl]: err.message || 'Error generating questions.' }));
+        setInterviewQuestions(prev => ({ ...prev, [jobUrl]: null })); // Clear on error
+    } finally {
+        setLoadingQuestions(prev => ({ ...prev, [jobUrl]: false }));
+    }
+  }, []); // No dependencies needed if it only uses args and fetch
+
   const handleKeyPress = (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       // Allow Shift+Enter in textarea, but trigger on Enter alone in input
       if (event.key === 'Enter' && !event.shiftKey) {
@@ -361,6 +478,7 @@ export default function Home() {
         projectIdeas,
         jobPrioritization,
         experienceSummary,
+        marketInsights,
         topCompanies,
         topLocations
     } = analysisResult;
@@ -371,6 +489,9 @@ export default function Home() {
     let exportContent = `# AI Job Market Analysis Export\n\n`;
     exportContent += `**Analyzed For:** ${userRoleQuery || 'N/A'}\n\n`;
     exportContent += `**Date Exported:** ${new Date().toLocaleString()}\n\n`;
+    exportContent += `---\n\n`;
+
+    exportContent += `## Overall Market Insights\n\n${marketInsights || 'N/A'}\n\n`;
     exportContent += `---\n\n`;
 
     exportContent += `## Top Job Recommendations\n\n${jobPrioritization || 'N/A'}\n\n`;
@@ -433,7 +554,6 @@ export default function Home() {
         // Optionally show an error to the user
         setError("Could not export analysis data.");
     }
-
   }, [analysisResult, strategyTips, resumeAnalysisResult, skillGapResult, userRoleQuery]); // Dependencies
 
   // --- JSX Rendering ---
@@ -452,7 +572,7 @@ export default function Home() {
         <div className={styles.inputSection}>
           <div className={styles.inputWrapper} style={{alignItems: 'flex-start', marginBottom: '1rem'}}> {/* Adjust alignment */}
             <div style={{flexGrow: 1, width: '100%'}}> {/* Wrapper for label + input */}
-              <label htmlFor="roleInput" className={styles.inputLabel}>1. Analyze Market For:</label>
+          <label htmlFor="roleInput" className={styles.inputLabel}>1. Analyze Market For:</label>
               <input
                 id="roleInput"
                 type="text"
@@ -481,10 +601,10 @@ export default function Home() {
            </div>
            {/* Move Button Below Textarea */}
            <div style={{marginTop: '1rem', textAlign: 'right'}}>
-                <button onClick={handleAnalyzeMarket} disabled={loading || !userRoleQuery.trim()} className={styles.analyzeButton} >
-                     {loading ? ( <>{/* Spinner */} Analyzing Market...</> ) : ( "Analyze Market" )}
-                </button>
-           </div>
+            <button onClick={handleAnalyzeMarket} disabled={loading || !userRoleQuery.trim()} className={styles.analyzeButton} >
+                 {loading ? ( <>{/* Spinner */} Analyzing Market...</> ) : ( "Analyze Market" )}
+            </button>
+          </div>
         </div>
 
         {/* Loading/Error States - UPDATED */}
@@ -512,235 +632,286 @@ export default function Home() {
         {analysisResult && !loading && !error && (
           <div className={styles.allResultsContainer}>
 
-                 {/* *** ADD Export Button Here *** */}
-                 <div style={{ marginBottom: '1.5rem', textAlign: 'right' }}>
-                     <button
-                         onClick={handleExportAnalysis}
-                         className={styles.analyzeButtonSmall} // Use smaller button style
-                         disabled={!analysisResult} // Disable if no results
-                         title="Download analysis sections as a Markdown file"
-                     >
-                         Export Analysis Results (.md)
-                     </button>
-                 </div>
+            {/* --- NEW: Overall Market Insights Section --- */}
+            <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopMedium} ${styles.marginBottomMedium}`}>
+              <h2 className={styles.sectionTitle}>Overall Market Insights</h2>
+              <div className={styles.analysisContent}>
+                {(analysisResult.marketInsights && !analysisResult.marketInsights.toLowerCase().includes('could not parse'))
+                  ? <ReactMarkdown>{analysisResult.marketInsights}</ReactMarkdown>
+                  : <p className={styles.noResultsText}>Could not generate market insights summary.</p>
+                }
+              </div>
+            </section>
+            {/* --- END NEW --- */}
 
-                 {/* --- Job List Section (Full List - Filter/Similar) --- */}
-                 <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
-                    {/* ... Title ... */}
-                    <h2 className={styles.sectionTitle}>
-                         {displayMode === 'similar' && `Similar Jobs to "${similarJobsSourceTitle || 'Selected Job'}"`}
-                         {displayMode === 'filtered' && `Filtered Job Listings (${jobsToDisplay.length} matching)`}
-                         {displayMode === 'initial' && `All Scraped Job Listings (${(analysisResult.jobListings || []).length} found)`}
-                     </h2>
-                     {/* ... Filter Input Area ... */}
-                      {displayMode !== 'similar' && ( <div className={`${styles.inputWrapper} ${styles.marginBottomMedium}`}> {/* ... filter input/buttons ... */} </div> )}
-                     {/* ... Back Button ... */}
-                     {/* ... Loading/Error for Filter/Similar ... */}
-                     {/* ... The Job List Itself (ul/li loop) ... */}
-                       {jobsToDisplay.length > 0 ? (
-                         <ul className={styles.jobList}>
-                             {jobsToDisplay.map((job: JobListing, index: number) => {
-                                // Add checks for potentially missing data
-                                const jobTitle = job.title || 'Job Title Unavailable';
-                                const jobUrl = job.url || '#'; // Use '#' if URL is missing
-                                const companyName = job.company_name;
-                                const location = job.location;
-                                const snippet = job.snippet || 'No snippet available.';
+            {/* *** Export Button *** */}
+            <div style={{ marginBottom: '1.5rem', textAlign: 'right' }}>
+              <button
+                onClick={handleExportAnalysis}
+                className={styles.analyzeButtonSmall}
+                disabled={!analysisResult}
+                title="Download analysis sections as a Markdown file"
+              >
+                Export Analysis Results (.md)
+              </button>
+            </div>
 
-                                return (
-                                 <li key={jobUrl + '-' + index} className={styles.jobListItem}> {/* Ensure key is unique */}
-                                     <a href={jobUrl} target="_blank" rel="noopener noreferrer" className={styles.jobTitleLink}>
-                                         {jobTitle}
-                                     </a>
-                                     <div className={styles.jobMeta}>
-                                         {/* Conditionally render only if data exists */}
-                                         {companyName && (
-                                             <span title="Company">
-                                                 {/* Building Icon SVG */}
-                                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={styles.jobMetaIcon}>
-                                                    <path fillRule="evenodd" d="M9.965 1.026a.75.75 0 0 1 .5.671v1.018l.75-.75a.75.75 0 1 1 1.06 1.06l-.75.75h1.018a.75.75 0 0 1 .671.5.75.75 0 0 1-.67.965h-1.02a.75.75 0 0 1-.5-.671V4.518l-.75.75a.75.75 0 1 1-1.06-1.06l.75-.75H9.018a.75.75 0 0 1-.671-.5.75.75 0 0 1 .965-.67h1.02Zm-2.93 1.93a.75.75 0 0 1 .5.671v1.018l.75-.75a.75.75 0 0 1 1.06 1.06l-.75.75h1.018a.75.75 0 0 1 .671.5.75.75 0 0 1-.67.965h-1.02a.75.75 0 0 1-.5-.671V7.518l-.75.75a.75.75 0 1 1-1.06-1.06l.75-.75H6.018a.75.75 0 0 1-.671-.5.75.75 0 0 1 .965-.67h1.02ZM4.035 6a.75.75 0 0 1 .5.671v1.018l.75-.75a.75.75 0 1 1 1.06 1.06l-.75.75h1.018a.75.75 0 0 1 .671.5.75.75 0 0 1-.67.965H6.518a.75.75 0 0 1-.5-.671v-1.02l-.75.75a.75.75 0 0 1-1.06-1.06l.75-.75H4.018a.75.75 0 0 1-.671-.5.75.75 0 0 1 .965-.67h.722Zm-2-.5a.75.75 0 0 0-.671.5v11.5c0 .138.112.25.25.25h11.5a.25.25 0 0 0 .25-.25V6.035a.75.75 0 0 0-.5-.671.75.75 0 0 0-.671.5V16H2.75V6.035a.75.75 0 0 0-.67-.5Z" clipRule="evenodd" />
-                                                </svg>
-                                                 {companyName}
-                                             </span>
-                                         )}
-                                         {location && (
-                                             <span title="Location">
-                                                 {/* Map Pin Icon SVG */}
-                                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={styles.jobMetaIcon}>
-                                                    <path fillRule="evenodd" d="m7.539.402 7 3.499c.323.162.561.48.561.842v8.402c0 .362-.238.68-.561.842l-7 3.5a.75.75 0 0 1-.478 0l-7-3.5a.75.75 0 0 1-.561-.842V4.743c0-.362.238-.68.561-.842l7-3.5a.75.75 0 0 1 .478 0Zm-.037 1.499L2 5.196v7.91l5.5 2.749 5.5-2.749V5.196L7.502 1.9ZM8 5.75a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0v-2.5A.75.75 0 0 1 8 5.75Zm0 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
-                                                </svg>
-                                                 {location}
-                                             </span>
-                                         )}
-                                         {!companyName && !location && <span>Details unavailable</span>}
-                                     </div>
-                                     {/* Render snippet only if it's not the fallback */}
-                                     {job.snippet && <p className={styles.jobSnippet}>{snippet}</p>}
-                                     {/* Add "Find Similar" button */}
-                                      <button
-                                          onClick={() => handleFindSimilarJobs(job)} // Pass the original job object
-                                          disabled={loadingSimilar || loadingFilter || jobUrl === '#'} // Disable if URL missing
-                                          className={`${styles.analyzeButtonSmall} ${styles.marginTopMedium}`}
-                                          style={{fontSize: '0.75rem', padding: '0.25rem 0.5rem'}}
-                                          title={`Find jobs similar to ${jobTitle}`}
-                                      >
-                                         Find Similar
-                                      </button>
-                                 </li>
-                                );
-                             })}
-                         </ul>
-                     ) : (
-                          <p className={styles.noResultsText}>
-                             {loadingFilter || loadingSimilar ? '' : (displayMode === 'filtered' ? 'No jobs match your filter.' : (displayMode === 'similar' ? 'Could not find similar jobs.' : 'No jobs found initially.'))}
-                         </p>
-                     )}
-                 </section>
+            {/* --- Job List Section (Full List - Filter/Similar) --- */}
+            <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
+               {/* ... Title ... */}
+               <h2 className={styles.sectionTitle}>
+                    {displayMode === 'similar' && `Similar Jobs to "${similarJobsSourceTitle || 'Selected Job'}"`}
+                    {displayMode === 'filtered' && `Filtered Job Listings (${jobsToDisplay.length} matching)`}
+                    {displayMode === 'initial' && `All Scraped Job Listings (${(analysisResult.jobListings || []).length} found)`}
+                </h2>
+               {/* ... Filter Input Area ... */}
+                {displayMode !== 'similar' && ( <div className={`${styles.inputWrapper} ${styles.marginBottomMedium}`}> {/* ... filter input/buttons ... */} </div> )}
+               {/* ... Back Button ... */}
+               {/* ... Loading/Error for Filter/Similar ... */}
+               {/* ... The Job List Itself (ul/li loop) ... */}
+                 {jobsToDisplay.length > 0 ? (
+                   <ul className={styles.jobList}>
+                       {jobsToDisplay.map((job: JobListing, index: number) => {
+                          // Use URL as the key for state management
+                          const key = job.url || `job-${index}`;
+                          const jobTitle = job.title || 'Job Title Unavailable';
+                          const companyName = job.company_name;
+                          const location = job.location;
+                          const snippet = job.snippet || 'No snippet available.';
+                          const canGenerateQuestions = job.description && job.description !== 'No description available.';
 
-                {/* --- Top Job Recommendations Section --- */}
-                 <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
-                    <h2 className={styles.sectionTitle}>
-                        Top Job Recommendations
-                        <span className={styles.titleSubText}>
-                            {/* Check if the string actually contains the specific phrase */}
-                            {(analysisResult.jobPrioritization || '').includes("based on your resume")
-                                ? " (Top matches for your resume from relevant jobs found)"
-                                : " (Top matches for your query from relevant jobs found)"}
-                        </span>
-                    </h2>
-                    <div className={styles.analysisContent}>
-                        {(analysisResult.jobPrioritization && !analysisResult.jobPrioritization.toLowerCase().includes('could not parse'))
-                         ? <ReactMarkdown>{analysisResult.jobPrioritization}</ReactMarkdown>
-                         : <p className={styles.noResultsText}>Could not generate job recommendations. Please try again or refine your query.</p>
-                        }
-                    </div>
-                 </section>
-
-
-                {/* --- Market Statistics Section - UPDATED --- */}
-                <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
-                    <h2 className={styles.sectionTitle}>Market Statistics (Based on Scraped Jobs)</h2>
-                    <div className={styles.statsGrid}>
-                         {/* --- Top Companies Chart --- */}
-                        <div className={styles.chartContainer}>
-                            <h3 className={styles.statsSubtitle}>Top Hiring Companies:</h3>
-                            {(analysisResult.topCompanies && analysisResult.topCompanies.length > 0) ? (
-                                <div className={styles.chartWrapper}>
-                                    <Bar
-                                        options={chartOptions}
-                                        data={getChartData(
-                                            analysisResult.topCompanies,
-                                            'Jobs Found',
-                                            'rgba(75, 75, 192, 0.6)', // Example color
-                                            'rgba(75, 75, 192, 1)'
-                                        )}
-                                    />
+                          return (
+                           <li key={key} className={styles.jobListItem}> {/* Use URL or index for key */}
+                               <a href={job.url} target="_blank" rel="noopener noreferrer" className={styles.jobTitleLink}>
+                                   {jobTitle}
+                               </a>
+                               <div className={styles.jobMeta}>
+                                    {companyName && ( <span title="Company"> {/* ... icon ... */} {companyName} </span> )}
+                                    {location && ( <span title="Location"> {/* ... icon ... */} {location} </span> )}
+                                    {!companyName && !location && <span>Details unavailable</span>}
                                 </div>
-                            ) : <p className={styles.noResultsText}>N/A</p>}
-                        </div>
+                               {job.snippet && <p className={styles.jobSnippet}>{snippet}</p>}
 
-                         {/* --- Top Locations Chart --- */}
-                        <div className={styles.chartContainer}>
-                             <h3 className={styles.statsSubtitle}>Top Locations:</h3>
-                             {(analysisResult.topLocations && analysisResult.topLocations.length > 0) ? (
-                                 <div className={styles.chartWrapper}>
-                                     <Bar
-                                         options={chartOptions}
-                                         data={getChartData(
-                                             analysisResult.topLocations,
-                                             'Jobs Found',
-                                             'rgba(192, 75, 75, 0.6)', // Example color
-                                             'rgba(192, 75, 75, 1)'
-                                         )}
-                                     />
-                                 </div>
-                             ) : <p className={styles.noResultsText}>N/A</p>}
-                         </div>
+                               {/* --- Action Buttons for Job Item --- */}
+                               <div className={styles.jobItemActions}>
+                                   {/* Find Similar Button */}
+                                    <button
+                                        onClick={() => handleFindSimilarJobs(job)}
+                                        disabled={loadingSimilar || loadingFilter || !job.url || job.url === '#'}
+                                        className={`${styles.analyzeButtonSmall} ${styles.jobActionButton}`}
+                                        title={`Find jobs similar to ${jobTitle}`}
+                                    >
+                                       Find Similar
+                                    </button>
 
-                         {/* --- Experience Level (remains text) --- */}
-                         <div className={styles.statsFullSpan}>
-                             <h3 className={styles.statsSubtitle}>Typical Experience Level:</h3>
-                             <div className={styles.analysisContent}> <ReactMarkdown>{analysisResult.experienceSummary || 'N/A'}</ReactMarkdown> </div>
-                         </div>
+                                    {/* --- Generate Questions Button --- */}
+                                   <button
+                                        onClick={() => handleGenerateQuestions(key, job.description)}
+                                        disabled={!canGenerateQuestions || loadingQuestions[key]}
+                                        className={`${styles.analyzeButtonSmall} ${styles.jobActionButton}`}
+                                        title={canGenerateQuestions ? `Generate potential interview questions for ${jobTitle}` : "Full description needed to generate questions"}
+                                    >
+                                        {loadingQuestions[key] ? "Generating..." : "Interview Qs"}
+                                    </button>
+                               </div>
+
+                               {/* --- Display Area for Questions --- */}
+                               {loadingQuestions[key] && (
+                                  <div className={`${styles.loadingIndicatorSmall} ${styles.marginTopMedium}`}>
+                                      {/* Small Spinner SVG */}
+                                      <svg className={styles.spinnerSmall} viewBox="0 0 50 50"><circle className={styles.spinnerCircle} cx="25" cy="25" r="20" fill="none" strokeWidth="5"></circle><circle className={styles.spinnerPath} cx="25" cy="25" r="20" fill="none" strokeWidth="5" strokeLinecap="round"><animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"></animateTransform></circle></svg>
+                                      <span>Loading Questions...</span>
+                                  </div>
+                               )}
+                               {errorQuestions[key] && (
+                                  <div className={`${styles.errorBoxSmall} ${styles.marginTopMedium}`} role="alert">
+                                      {errorQuestions[key]}
+                                  </div>
+                               )}
+                               {interviewQuestions[key] && !loadingQuestions[key] && !errorQuestions[key] && (
+                                  <div className={`${styles.interviewQuestionsBox} ${styles.marginTopMedium}`}>
+                                       <h4 className={styles.interviewQuestionsTitle}>Potential Interview Questions:</h4>
+                                       {/* Use ReactMarkdown for potential list formatting from Gemini */}
+                                       <ReactMarkdown>
+                                          {interviewQuestions[key]}
+                                       </ReactMarkdown>
+                                   </div>
+                               )}
+                           </li>
+                          );
+                       })}
+                   </ul>
+               ) : (
+                    <p className={styles.noResultsText}>
+                       {loadingFilter || loadingSimilar ? '' : (displayMode === 'filtered' ? 'No jobs match your filter.' : (displayMode === 'similar' ? 'Could not find similar jobs.' : 'No jobs found initially.'))}
+                   </p>
+               )}
+           </section>
+
+          {/* --- Top Job Recommendations Section --- */}
+           <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
+              <h2 className={styles.sectionTitle}>
+                  Top Job Recommendations
+                  <span className={styles.titleSubText}>
+                      {(analysisResult.jobPrioritization || '').includes("based on your resume")
+                          ? " (Top matches for your resume from relevant jobs found)"
+                          : " (Top matches for your query from relevant jobs found)"}
+                  </span>
+              </h2>
+              <div className={`${styles.analysisContent} ${styles.jobRecommendationsContent}`}>
+                  {(analysisResult.jobPrioritization && !analysisResult.jobPrioritization.toLowerCase().includes('could not parse'))
+                   ? <ReactMarkdown>{analysisResult.jobPrioritization}</ReactMarkdown>
+                   : <p className={styles.noResultsText}>Could not generate job recommendations. Please try again or refine your query.</p>
+                  }
+              </div>
+           </section>
+
+
+          {/* --- Market Statistics Section - UPDATED --- */}
+           <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
+               <h2 className={styles.sectionTitle}>Market Statistics (Based on Scraped Jobs)</h2>
+               <div className={styles.statsGrid}>
+                   {/* --- Top Companies Chart --- */}
+                  <div className={styles.chartContainer}>
+                       <h3 className={styles.statsSubtitle}>Top Hiring Companies:</h3>
+                      {(analysisResult.topCompanies && analysisResult.topCompanies.length > 0) ? (
+                          <div className={styles.chartWrapper}>
+                              <Bar
+                                  options={chartOptions}
+                                  data={getChartData(
+                                      analysisResult.topCompanies,
+                                      'Jobs Found',
+                                      'rgba(75, 75, 192, 0.6)', // Example color
+                                      'rgba(75, 75, 192, 1)'
+                                  )}
+                              />
+                          </div>
+                      ) : <p className={styles.noResultsText}>N/A</p>}
+                  </div>
+
+                   {/* --- Top Locations Chart --- */}
+                  <div className={styles.chartContainer}>
+                       <h3 className={styles.statsSubtitle}>Top Locations:</h3>
+                       {(analysisResult.topLocations && analysisResult.topLocations.length > 0) ? (
+                           <div className={styles.chartWrapper}>
+                               <Bar
+                                   options={chartOptions}
+                                   data={getChartData(
+                                       analysisResult.topLocations,
+                                       'Jobs Found',
+                                       'rgba(192, 75, 75, 0.6)', // Example color
+                                       'rgba(192, 75, 75, 1)'
+                                   )}
+                               />
+                           </div>
+                       ) : <p className={styles.noResultsText}>N/A</p>}
+                   </div>
+
+                   {/* --- Experience Level (remains text) --- */}
+                    <div className={styles.statsFullSpan}>
+                        <h3 className={styles.statsSubtitle}>Typical Experience Level:</h3>
+                        <div className={styles.analysisContent}> <ReactMarkdown>{analysisResult.experienceSummary || 'N/A'}</ReactMarkdown> </div>
                     </div>
-                </section>
+               </div>
+           </section>
 
-                {/* --- Search Strategy Section --- */}
-                <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
-                    <div className={styles.skillGapHeader}>
-                        <h2 className={styles.sectionTitle}>Personalized Search Strategy</h2>
-                        <button onClick={handleGetStrategy} disabled={loadingStrategy || !canAnalyzeExtras} className={styles.analyzeButtonSmall}>
-                            {loadingStrategy ? ( <> {/* Spinner */} Generating...</> ) : ( "Get Strategy Tips" )}
-                        </button>
-                    </div>
-                    {!canAnalyzeExtras && <p className={styles.infoText}>Run 'Analyze Market' first.</p>}
-                    {errorStrategy && <div className={styles.errorBoxSmall} role="alert">{errorStrategy}</div>}
-                    {strategyTips && !loadingStrategy && !errorStrategy && (
-                         <div className={`${styles.analysisContent} ${styles.marginTopMedium}`}> <ReactMarkdown>{strategyTips}</ReactMarkdown> </div>
-                     )}
-                </section>
+           {/* --- Search Strategy Section --- */}
+           <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
+               <div className={styles.skillGapHeader}>
+                   <h2 className={styles.sectionTitle}>Personalized Search Strategy</h2>
+                   <button onClick={handleGetStrategy} disabled={loadingStrategy || !canAnalyzeExtras} className={styles.analyzeButtonSmall}>
+                       {loadingStrategy ? ( <> {/* Spinner */} Generating...</> ) : ( "Get Strategy Tips" )}
+                   </button>
+               </div>
+               {!canAnalyzeExtras && <p className={styles.infoText}>Run 'Analyze Market' first.</p>}
+               {errorStrategy && <div className={styles.errorBoxSmall} role="alert">{errorStrategy}</div>}
+               {strategyTips && !loadingStrategy && !errorStrategy && (
+                    <div className={`${styles.analysisContent} ${styles.marginTopMedium}`}> <ReactMarkdown>{strategyTips}</ReactMarkdown> </div>
+                )}
+           </section>
 
-                {/* --- Resume Analysis Section (Optional - can still use for separate feedback) --- */}
-                 <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
-                     <h2 className={styles.sectionTitle}>Resume Fitness Analysis <span className={styles.titleSubText}>(Detailed Feedback vs. Market)</span></h2>
-                     {/* Keep this section if you want separate, detailed feedback */}
-                     {/* If resumeText state is already filled from above, no need for another textarea */}
-                      {!resumeText && <p className={styles.infoText}>Paste resume above to enable detailed analysis.</p>}
-                     <button onClick={handleAnalyzeResume} disabled={loadingResume || !resumeText.trim() || !canAnalyzeExtras} className={styles.analyzeButton}>
-                         {loadingResume ? ( <> {/* Spinner */} Analyzing...</> ) : ( "Get Detailed Resume Feedback" )}
-                     </button>
-                     {/* ... error/result display ... */}
-                 </section>
+          {/* --- Resume Analysis Section (Optional - can still use for separate feedback) --- */}
+           <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
+               <h2 className={styles.sectionTitle}>Resume Fitness Analysis <span className={styles.titleSubText}>(Detailed Feedback vs. Market)</span></h2>
+               {!resumeText && <p className={styles.infoText}>Paste resume above to enable detailed analysis.</p>}
+               <button onClick={handleAnalyzeResume} disabled={loadingResume || !resumeText.trim() || !canAnalyzeExtras} className={`${styles.analyzeButtonSmall} ${styles.marginTopMedium}`}>
+                   {loadingResume ? ( <> {/* Spinner */} Analyzing...</> ) : ( "Get Detailed Resume Feedback" )}
+               </button>
+               {loadingResume && <div className={styles.loadingIndicator} style={{padding: '1rem 0'}}><p>Loading feedback...</p></div>}
+               {errorResume && <div className={styles.errorBoxSmall} role="alert">{errorResume}</div>}
+               {resumeAnalysisResult && !loadingResume && !errorResume && (
+                   <div className={`${styles.analysisContent} ${styles.marginTopMedium}`}> <ReactMarkdown>{resumeAnalysisResult}</ReactMarkdown> </div>
+               )}
+           </section>
 
-                {/* --- Skill Gap & Learning Section --- */}
-                  <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
-                      <div className={styles.skillGapHeader}>
-                          <h2 className={styles.sectionTitle}>Skill Gap & Learning Recommendations</h2>
-                          <button onClick={handleAnalyzeSkillGap} disabled={loadingSkillGap || !canAnalyzeExtras} className={styles.analyzeButtonSmall}>
-                              {loadingSkillGap ? ( <> {/* Spinner */} Analyzing...</> ) : ( "Analyze Skill Gaps" )}
-                          </button>
-                      </div>
-                      {!canAnalyzeExtras && <p className={styles.infoText}>Run 'Analyze Market' first.</p>}
-                      {errorSkillGap && <div className={styles.errorBoxSmall} role="alert">{errorSkillGap}</div>}
-                      {skillGapResult && !loadingSkillGap && !errorSkillGap && ( <div className={`${styles.analysisContent} ${styles.marginTopMedium}`}> <ReactMarkdown>{skillGapResult}</ReactMarkdown> </div> )}
-                  </section>
-
-                {/* --- Original Analysis Grid (Stack & Projects) --- */}
-                <div className={`${styles.resultsGrid} ${styles.marginTopLarge}`}>
-                   {/* REMOVE this section - it was the duplicate job list */}
-                   {/*
-                   <section className={`${styles.resultCard} ${styles.jobListColumn}`}>
-                       <h2 className={styles.sectionTitle}> Scraped Job Listings <span className={styles.titleSubText}>({analysisResult.jobListings.length} found)</span> </h2>
-                       {analysisResult.jobListings?.length > 0 ? (
-                           <ul className={styles.jobList}>
-                               {analysisResult.jobListings.map((job: JobListing, index: number) => (
-                                   <li key={job.url || index} className={styles.jobListItem}>
-                                       // ... content ...
-                                   </li>
-                               ))}
-                           </ul>
-                       ) : (
-                           <p className={styles.noResultsText}>No jobs found.</p>
-                       )}
-                   </section>
-                   */}
-
-                   {/* KEEP these analysis sections */}
-                   <section className={`${styles.resultCard} ${styles.analysisColumn}`}>
-                      <h2 className={styles.sectionTitle}>Common Tech Stack <span className={styles.titleSubText}>(Initial Analysis)</span></h2>
-                      <div className={styles.analysisContent}> <ReactMarkdown>{analysisResult.commonStack || 'N/A'}</ReactMarkdown> </div>
-                   </section>
-                   <section className={`${styles.resultCard} ${styles.analysisColumn}`}>
-                      <h2 className={styles.sectionTitle}>Suggested Portfolio Projects <span className={styles.titleSubText}>(Initial Analysis)</span></h2>
-                      <div className={styles.analysisContent}> <ReactMarkdown>{analysisResult.projectIdeas || 'N/A'}</ReactMarkdown> </div>
-                   </section>
-
+           {/* --- Skill Gap & Learning Section --- */}
+            <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
+                <div className={styles.skillGapHeader}>
+                    <h2 className={styles.sectionTitle}>Skill Gap & Learning Recommendations</h2>
+                    <button onClick={handleAnalyzeSkillGap} disabled={loadingSkillGap || !canAnalyzeExtras} className={styles.analyzeButtonSmall}>
+                        {loadingSkillGap ? ( <> {/* Spinner */} Analyzing...</> ) : ( "Analyze Skill Gaps" )}
+                    </button>
                 </div>
+                {!canAnalyzeExtras && <p className={styles.infoText}>Run 'Analyze Market' first.</p>}
+                {errorSkillGap && <div className={styles.errorBoxSmall} role="alert">{errorSkillGap}</div>}
+                {skillGapResult && !loadingSkillGap && !errorSkillGap && ( <div className={`${styles.analysisContent} ${styles.marginTopMedium}`}> <ReactMarkdown>{skillGapResult}</ReactMarkdown> </div> )}
+            </section>
 
-                {/* Disclaimer */}
-                <p className={styles.disclaimer}>{analysisResult.analysisDisclaimer}</p>
+          {/* --- Original Analysis Grid (Stack & Projects) --- */}
+          <div className={`${styles.resultsGrid} ${styles.marginTopLarge}`}>
+             {/* --- Common Tech Stack (Filtered & Rendered Directly) --- */}
+             <section className={`${styles.resultCard} ${styles.analysisColumn}`}>
+               <h2 className={styles.sectionTitle}>
+                 Common Tech Stack <span className={styles.titleSubText}>(Skills mentioned in ≥10% of jobs)</span>
+               </h2>
+               <div className={`${styles.analysisContent} ${styles.techStackContent}`}>
+                 {filteredStackData.length > 0 ? (
+                   filteredStackData.map((categoryData) => (
+                     // Use Fragment to avoid unnecessary divs unless needed for styling
+                     <Fragment key={categoryData.category}>
+                       <strong className={styles.techStackCategoryTitle}>
+                         {categoryData.category}:
+                       </strong>
+                       <ul className={styles.techStackSkillList}>
+                         {categoryData.skills.map((skill, index) => (
+                           <li key={`${categoryData.category}-${skill.name}-${index}`}>
+                             {skill.name}
+                             {/* Conditionally display percentage */}
+                             {skill.percentage !== null && (
+                               <span className={styles.techStackPercentage}>
+                                 {`(~${skill.percentage}%)`}
+                               </span>
+                             )}
+                           </li>
+                         ))}
+                       </ul>
+                     </Fragment>
+                   ))
+                 ) : (analysisResult.commonStack && !analysisResult.commonStack.toLowerCase().includes('could not parse')) ? (
+                    <p className={styles.noResultsText}>No skills found meeting the ≥10% threshold.</p>
+                  ) : (
+                    <p className={styles.noResultsText}>Could not analyze tech stack.</p>
+                 )}
+               </div>
+            </section>
 
-          </div> // End allResultsContainer
+             {/* --- Suggested Projects (Still uses ReactMarkdown) --- */}
+             <section className={`${styles.resultCard} ${styles.analysisColumn}`}>
+               <h2 className={styles.sectionTitle}>Suggested Portfolio Projects <span className={styles.titleSubText}>(Based on Prioritized Jobs)</span></h2>
+               <div className={styles.analysisContent}>
+                  {(analysisResult.projectIdeas && !analysisResult.projectIdeas.toLowerCase().includes('could not parse'))
+                      ? <ReactMarkdown>{analysisResult.projectIdeas}</ReactMarkdown>
+                      : <p className={styles.noResultsText}>Could not generate project ideas.</p>
+                  }
+            </div>
+             </section>
+
+          </div>
+
+          {/* Disclaimer */}
+          <p className={styles.disclaimer}>{analysisResult.analysisDisclaimer}</p>
+
+        </div> // End allResultsContainer
         )}
       </div>
     </main>
