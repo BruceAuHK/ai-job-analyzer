@@ -189,22 +189,32 @@
     background-color: white;
     padding: 1.5rem; /* p-6 */
     border-radius: 0.75rem; /* rounded-xl */
-    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); /* shadow-lg */
+    /* Even subtler shadow */
+    box-shadow: 0 2px 4px -1px rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05);
     border: 1px solid #e5e7eb; /* border-gray-200 */
+    transition: box-shadow 0.2s ease-in-out; /* Add transition for hover */
+  }
+  .resultCard:hover {
+     /* Slightly raise the card on hover */
+     box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.07), 0 4px 6px -2px rgb(0 0 0 / 0.05);
   }
   
   .sectionTitle {
-    font-size: 1.5rem; /* text-2xl */
-    font-weight: 700; /* font-bold */
+    font-size: 1.25rem; /* text-xl - Slightly smaller for better hierarchy */
+    font-weight: 600; /* font-semibold */
     color: #1f2937; /* text-gray-800 */
     margin-bottom: 1rem; /* mb-4 */
-    border-bottom: 1px solid #d1d5db; /* border-gray-300 */
+    border-bottom: 1px solid #e5e7eb; /* Lighter border */
     padding-bottom: 0.75rem; /* pb-3 */
+    display: flex; /* Align title and subtext */
+    justify-content: space-between;
+    align-items: baseline;
   }
   .titleSubText {
-      font-size: 1rem; /* text-base */
+    font-size: 0.8rem; /* text-xs */
       font-weight: 400; /* font-normal */
       color: #6b7280; /* text-gray-500 */
+    margin-left: 0.75rem; /* Add some space */
   }
   
   .jobListColumn {
@@ -232,25 +242,27 @@
     list-style: none;
     padding: 0;
     margin: 0;
-    max-height: 80vh; /* Limit height */
-    overflow-y: auto; /* Make scrollable */
-    padding-right: 0.5rem; /* Space for scrollbar */
+    /* Consider slightly less max-height if needed */
+    max-height: 75vh;
+    overflow-y: auto;
+    padding-right: 0.5rem;
     margin-right: -0.5rem;
     display: flex;
     flex-direction: column;
-    gap: 1rem; /* space-y-4 */
+    gap: 0.75rem; /* Slightly reduce gap */
   }
   
   .jobListItem {
     border: 1px solid #e5e7eb;
-    padding: 1rem 1.25rem; /* Slightly more horizontal padding */
+    padding: 1rem 1.25rem;
     border-radius: 0.5rem;
-    transition: box-shadow 0.2s ease-in-out;
-    background-color: white; /* Changed from #f9fafb */
-    margin-bottom: 1rem; /* Added margin between items */
+    background-color: white; /* Keep background white */
+    transition: transform 0.15s ease-in-out, box-shadow 0.15s ease-in-out; /* Add transform */
+    margin-bottom: 0; /* Remove margin, rely on parent gap */
   }
   .jobListItem:hover {
-    box-shadow: 0 4px 8px -1px rgba(0, 0, 0, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.05); /* Slightly softer hover */
+    box-shadow: 0 4px 8px -1px rgba(0, 0, 0, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.05);
+    transform: translateY(-2px); /* Add slight lift effect */
   }
   
   .jobTitleLink {
@@ -344,6 +356,7 @@
     line-height: 1.5;
     transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
     margin-bottom: 1rem; /* Add some space below */
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); /* Subtle inner shadow */
 }
 .textArea:focus {
     outline: none;
@@ -424,7 +437,7 @@
 
 /* Ensure ReactMarkdown content uses appropriate styles */
 .analysisContent {
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     line-height: 1.7;
     color: #374151;
     margin-top: 0.5rem;
@@ -435,30 +448,39 @@
 .analysisContent h3,
 .analysisContent h4 {
     font-weight: 600;
-    margin-top: 1em;
-    margin-bottom: 0.5em;
+    margin-top: 1.75em; /* More space above */
+    margin-bottom: 0.75em;
+    line-height: 1.4; /* Adjust heading line height */
+}
+
+.analysisContent h3:first-of-type, .analysisContent h4:first-of-type {
+    margin-top: 0.5em; /* Less margin for the very first heading in a block */
+}
+
+.analysisContent p {
+    margin-bottom: 1em;
+}
+
+.analysisContent strong {
+    font-weight: 600;
+    color: #111827;
 }
 
 .analysisContent ul,
 .analysisContent ol {
     list-style-position: outside;
     padding-left: 1.75rem;
-    margin-top: 1em;
-    margin-bottom: 1em;
+    margin-top: 0.75em;
+    margin-bottom: 1.25em;
 }
 
 .analysisContent li {
-    margin-bottom: 1.5em;
+    margin-bottom: 0.6em;
     padding-left: 0.5em;
 }
 
-.analysisContent p {
-    margin-bottom: 0.75em;
-}
-
-.analysisContent strong {
-    font-weight: 600;
-}
+.analysisContent code { background-color: #f3f4f6; padding: 0.1em 0.3em; border-radius: 0.25rem; font-family: monospace; font-size: 0.9em; }
+.analysisContent pre { white-space: pre-wrap; font-family: inherit; font-size: 0.95rem; background-color: transparent; padding: 0; margin: 0; }
 
 /* Style for the new Prioritization section */
 .jobPriorityColumn {
@@ -550,13 +572,52 @@
   .infoText { font-size: 0.75rem; color: #6b7280; margin-top: 0.5rem; }
   
   /* Results Layout */
-  .allResultsContainer { margin-top: 2.5rem; }
-  .resultsGrid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 2rem; margin-top: 2rem; }
+  .allResultsContainer {
+    margin-top: 2.5rem;
+    display: flex; /* Use flexbox for easier spacing control */
+    flex-direction: column;
+    gap: 2rem; /* Consistent gap between all top-level cards */
+  }
+  .resultsGrid {
+    display: grid;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: 2rem;
+    /* Removed margin-top as spacing is handled by allResultsContainer gap */
+    /* margin-top: 2rem; */
+  }
   @media (min-width: 1280px) { .resultsGrid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
-  .resultCard { background-color: white; padding: 1.5rem; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); border: 1px solid #e5e7eb; }
-  .sectionTitle { font-size: 1.5rem; font-weight: 700; color: #1f2937; margin-bottom: 1rem; border-bottom: 1px solid #d1d5db; padding-bottom: 0.75rem; }
-  .titleSubText { font-size: 0.875rem; font-weight: 400; color: #6b7280; }
-  .fullWidthCard { grid-column: 1 / -1; }
+  .resultCard {
+    background-color: white;
+    padding: 1.5rem; /* p-6 */
+    border-radius: 0.75rem; /* rounded-xl */
+    box-shadow: 0 2px 4px -1px rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+    border: 1px solid #e5e7eb; /* border-gray-200 */
+    transition: box-shadow 0.2s ease-in-out; /* Add transition for hover */
+  }
+  .resultCard:hover {
+     /* Slightly raise the card on hover */
+     box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.07), 0 4px 6px -2px rgb(0 0 0 / 0.05);
+  }
+  .sectionTitle {
+    font-size: 1.25rem; /* text-xl - Slightly smaller for better hierarchy */
+    font-weight: 600; /* font-semibold */
+    color: #1f2937; /* text-gray-800 */
+    margin-bottom: 1rem; /* mb-4 */
+    border-bottom: 1px solid #e5e7eb; /* Lighter border */
+    padding-bottom: 0.75rem; /* pb-3 */
+    display: flex; /* Align title and subtext */
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .titleSubText {
+    font-size: 0.8rem; /* text-xs */
+    font-weight: 400; /* font-normal */
+    color: #6b7280; /* text-gray-500 */
+    margin-left: 0.75rem; /* Add some space */
+  }
+  .fullWidthCard {
+    grid-column: 1 / -1;
+  }
   .marginTopLarge { margin-top: 2rem; }
   .marginTopMedium { margin-top: 1rem; }
   .marginBottomMedium { margin-bottom: 1rem; }
@@ -579,9 +640,9 @@
   /* Job List Column */
   .jobListColumn { grid-column: span 1 / span 1; height: fit-content; }
   @media (min-width: 1280px) { .jobListColumn { grid-column: span 2 / span 2; } }
-  .jobList { list-style: none; padding: 0; margin: 0; max-height: 80vh; overflow-y: auto; padding-right: 0.5rem; margin-right: -0.5rem; display: flex; flex-direction: column; gap: 1rem; }
-  .jobListItem { border: 1px solid #e5e7eb; padding: 1rem; border-radius: 0.5rem; transition: box-shadow 0.2s ease-in-out; background-color: #f9fafb; }
-  .jobListItem:hover { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
+  .jobList { list-style: none; padding: 0; margin: 0; max-height: 75vh; overflow-y: auto; padding-right: 0.5rem; margin-right: -0.5rem; display: flex; flex-direction: column; gap: 0.75rem; }
+  .jobListItem { border: 1px solid #e5e7eb; padding: 1rem; border-radius: 0.5rem; background-color: white; transition: transform 0.15s ease-in-out, box-shadow 0.15s ease-in-out; margin-bottom: 0; }
+  .jobListItem:hover { box-shadow: 0 4px 8px -1px rgba(0, 0, 0, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.05); transform: translateY(-2px); }
   .jobTitleLink { font-size: 1rem; font-weight: 600; color: #4338ca; text-decoration: none; display: block; }
   .jobTitleLink:hover { color: #312e81; text-decoration: underline; }
   .jobMeta { margin-top: 0.35rem; font-size: 0.875rem; color: #4b5563; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
@@ -594,7 +655,7 @@
   .analysisColumn { grid-column: span 1 / span 1; display: flex; flex-direction: column; gap: 2rem; }
   @media (min-width: 1280px) { .analysisColumn { grid-column: span 3 / span 3; } }
   .analysisContent {
-      font-size: 0.95rem;
+      font-size: 0.9rem;
       line-height: 1.7;
       color: #374151;
       margin-top: 0.5rem;
@@ -609,29 +670,34 @@
   .analysisContent h6 {
       font-weight: 600;
       color: #1f2937; /* gray-800 */
-      margin-top: 1.25em;
-      margin-bottom: 0.6em;
+      margin-top: 1.75em; /* More space above */
+      margin-bottom: 0.75em;
+      line-height: 1.4; /* Adjust heading line height */
+  }
+
+  .analysisContent h3:first-of-type, .analysisContent h4:first-of-type {
+      margin-top: 0.5em; /* Less margin for the very first heading in a block */
   }
 
   .analysisContent strong { /* General strong tag */
       font-weight: 600;
-      color: #1f2937; /* gray-800 */
+      color: #111827; /* gray-900 - Stronger emphasis */
   }
 
   .analysisContent p {
-      margin-bottom: 0.75em;
+      margin-bottom: 1em;
   }
 
   .analysisContent ul,
   .analysisContent ol {
       list-style-position: outside;
       padding-left: 1.75rem;
-      margin-top: 0.5em;
-      margin-bottom: 1em;
+      margin-top: 0.75em;
+      margin-bottom: 1.25em;
   }
 
   .analysisContent li {
-      margin-bottom: 0.5em; /* Default spacing */
+      margin-bottom: 0.6em; /* Default spacing */
       padding-left: 0.5em;
   }
 
@@ -683,9 +749,9 @@
       margin: 0;
   }
   .jobRecommendationsContent > ol > li { /* Direct li children - each job analysis */
-      margin-bottom: 2em;
+      margin-bottom: 2.5em; /* Increased space */
       padding-left: 0.5em;
-      border-bottom: 1px solid #eee; /* Lighter separator */
+      border-bottom: 1px dashed #d1d5db; /* Dashed separator */
       padding-bottom: 1.5em;
   }
   .jobRecommendationsContent > ol > li:last-child {
@@ -696,8 +762,8 @@
 
   .jobRecommendationsContent li strong:first-child { /* The linked job title */
       display: block;
-      font-size: 1.15em; /* Even larger title */
-      margin-bottom: 0.6em; /* More space below title */
+      font-size: 1.1em; /* Adjusted size */
+      margin-bottom: 0.75em; /* More space below title */
       font-weight: 600;
   }
   .jobRecommendationsContent li strong:first-child a { /* Style the link itself */
@@ -713,16 +779,16 @@
   /* Style the nested unordered list (details/ratings/points/gaps) */
   .jobRecommendationsContent ul {
       list-style: none; /* Remove default bullets */
-      margin-top: 0.5em;
-      margin-bottom: 1em;
+      margin-top: 0.75em;
+      margin-bottom: 1.25em;
       padding-left: 0.5rem; /* Slight indent for sections */
   }
   .jobRecommendationsContent ul li {
       font-size: 0.9rem;
       color: #4b5563;
-      margin-bottom: 0.6em;
+      margin-bottom: 0.75em;
       padding-left: 0; /* Remove default padding */
-      line-height: 1.6;
+      line-height: 1.7;
   }
 
   /* Style the bolded sub-headings (Overall Fit, Ratings, Key Points, Gaps) */
@@ -730,13 +796,13 @@
       display: block; /* Make sub-heading stand out */
       font-weight: 600;
       color: #374151; /* gray-700 */
-      margin-bottom: 0.3em; /* Space below sub-heading */
+      margin-bottom: 0.4em; /* Space below sub-heading */
       font-size: 0.95rem; /* Slightly larger sub-heading */
   }
   /* Target the first list item in each UL (which should be the description/explanation) */
   .jobRecommendationsContent ul > li:first-of-type:not(:has(ul)) {
       /* Apply only if it doesn't contain another nested list (like Ratings) */
-      margin-bottom: 1em; /* More space after main descriptions */
+      margin-bottom: 1.25em; /* More space after main descriptions */
   }
 
 
@@ -744,17 +810,17 @@
   .jobRecommendationsContent ul ul { /* Select UL inside a UL */
       list-style: none; /* No bullets for ratings */
       padding-left: 1rem; /* Indent ratings */
-      margin-top: 0.4em;
-      margin-bottom: 1em; /* Space after ratings block */
-      background-color: #f9fafb; /* Light background for ratings */
+      margin-top: 0.5em;
+      margin-bottom: 1.25em; /* Space after ratings block */
+      background-color: rgba(249, 250, 251, 0.6); /* Slightly transparent bg */
       border: 1px solid #f3f4f6; /* Subtle border */
       border-radius: 4px;
-      padding-top: 0.5em;
-      padding-bottom: 0.2em;
+      padding-top: 0.6em;
+      padding-bottom: 0.3em;
   }
 
   .jobRecommendationsContent ul ul li { /* Individual rating item */
-      margin-bottom: 0.4em;
+      margin-bottom: 0.5em;
       font-size: 0.85rem; /* Smaller font for ratings */
   }
   .jobRecommendationsContent ul ul li strong { /* Rating category name */
@@ -780,17 +846,19 @@
 
   /* Style Key Points / Gaps Lists */
   .jobRecommendationsContent ul:has(li strong:contains('Key Alignment Points')),
-  .jobRecommendationsContent ul:has(li strong:contains('Potential Gaps/Concerns')) {
+  .jobRecommendationsContent ul:has(li strong:contains('Potential Gaps/Concerns')),
+  .jobRecommendationsContent ul:has(li strong:contains('Potential Considerations')) {
       /* Target the ULs for Key Points and Gaps */
        list-style: disc; /* Use bullets for these points */
        padding-left: 1.75rem; /* Indent bullets */
-       margin-top: 0.4em;
-       margin-bottom: 1em;
+       margin-top: 0.5em;
+       margin-bottom: 1.25em;
   }
   .jobRecommendationsContent ul:has(li strong:contains('Key Alignment Points')) li,
-  .jobRecommendationsContent ul:has(li strong:contains('Potential Gaps/Concerns')) li {
+  .jobRecommendationsContent ul:has(li strong:contains('Potential Gaps/Concerns')) li,
+  .jobRecommendationsContent ul:has(li strong:contains('Potential Considerations')) li {
       font-size: 0.9rem;
-      margin-bottom: 0.4em;
+      margin-bottom: 0.5em;
       padding-left: 0.25em;
   }
 
@@ -846,7 +914,7 @@
     color: #1f2937; /* gray-800 */
   }
   .jobActionButton:disabled {
-    opacity: 0.6;
+    opacity: 0.5;
     cursor: not-allowed;
   }
 
@@ -893,4 +961,123 @@
   }
   .interviewQuestionsBox .analysisContent li {
      margin-bottom: 0.4em;
+  }
+
+  /* --- Subtle Backgrounds for Different Sections --- */
+  .marketInsightsCard {
+    /* background-color: #f9fafb; */ /* gray-50 */
+    /* border-left: 4px solid #6366f1; */ /* Indigo border */
+    /* Maybe add a top border instead? */
+    /* border-top: 3px solid #6366f1; */
+    /* padding-top: calc(1.5rem - 3px); */ /* Adjust padding if using border-top */
+  }
+
+  .competitiveLandscapeCard {
+     /* background-color: #f0f9ff; */ /* sky-50 */
+     /* border-left: 4px solid #38bdf8; */ /* sky-400 */
+  }
+
+  .recommendationsCard {
+    /* background-color: #f0fdf4; */ /* green-50 */
+     /* border-left: 4px solid #4ade80; */ /* green-400 */
+  }
+
+  .statisticsCard {
+     /* background-color: #fefce8; */ /* yellow-50 */
+     /* border-left: 4px solid #facc15; */ /* yellow-400 */
+  }
+
+  .supplementaryAnalysisCard {
+    /* background-color: #faf5ff; */ /* purple-50 */
+    /* border-left: 4px solid #a855f7; */ /* purple-500 */
+  }
+
+  .coreAnalysisCard { /* For Stack and Projects in the grid */
+    /* background-color: white; */ /* Keep default */
+  }
+
+  /* Job List Improvements */
+  .jobListHeader { /* New class for the header area of the job list */
+    margin-bottom: 1.5rem;
+  }
+  .jobListTitleContainer { /* Container for title + clear button */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap; /* Allow wrapping */
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .jobListFilterContainer { /* Container for filter input/button */
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap; /* Allow wrapping */
+    margin-top: 0.5rem;
+  }
+  .filterInput { /* Style the filter input */
+    flex-grow: 1;
+    min-width: 150px; /* Ensure it doesn't get too small */
+    padding: 0.5rem 0.75rem; /* Smaller padding */
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem; /* rounded-md */
+    font-size: 0.875rem;
+  }
+  .filterInput:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.5);
+  }
+
+
+  /* Analysis Content Readability */
+  .analysisContent {
+      font-size: 0.9rem;
+      line-height: 1.7;
+      color: #374151;
+      margin-top: 0.5rem;
+  }
+  .analysisContent h1, .analysisContent h2, .analysisContent h3, .analysisContent h4, .analysisContent h5, .analysisContent h6 {
+      font-weight: 600;
+      color: #1f2937;
+      margin-top: 1.75em; /* More space above */
+      margin-bottom: 0.75em;
+  }
+  .analysisContent strong {
+      font-weight: 600;
+      color: #111827; /* gray-900 - Stronger emphasis */
+  }
+  .analysisContent p {
+      margin-bottom: 1em;
+  }
+  .analysisContent ul, .analysisContent ol {
+      list-style-position: outside;
+      padding-left: 1.75rem;
+      margin-top: 0.75em;
+      margin-bottom: 1.25em;
+  }
+  .analysisContent li {
+      margin-bottom: 0.6em;
+      padding-left: 0.5em;
+  }
+
+  /* Loading/Error within Sections */
+  .sectionLoadingIndicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 1.5rem 0;
+    font-size: 0.9rem;
+    color: #4f46e5;
+    min-height: 50px; /* Prevent layout jump */
+  }
+  .sectionErrorBox { /* Using errorBoxSmall style */
+    background-color: #fee2e2;
+    border-left: 4px solid #ef4444;
+    color: #991b1b;
+    padding: 0.75rem 1rem;
+    border-radius: 0.375rem;
+    margin-top: 0.75rem;
+    font-size: 0.875rem;
   }

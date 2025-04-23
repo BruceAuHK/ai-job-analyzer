@@ -46,7 +46,9 @@ interface AnalysisResult {
   projectIdeas: string;
   jobPrioritization: string;
   experienceSummary: string;
-  marketInsights: string; // <-- NEW Field added
+  marketInsights: string;
+  detailedTrends: string;
+  competitiveLandscape?: string | null; // <-- NEW Field (optional/nullable)
   topCompanies: StatItem[];
   topLocations: StatItem[];
   analysisDisclaimer: string;
@@ -119,6 +121,7 @@ export default function Home() {
       return [];
   })();
   const displayMode: 'initial' | 'filtered' | 'similar' = similarJobsResult ? 'similar' : (filteredJobIds ? 'filtered' : 'initial');
+  const hasResumeProvided = resumeText.trim().length > 0; // More explicit check
 
   // === Chart Configuration ===
   const chartOptions = {
@@ -468,9 +471,9 @@ export default function Home() {
   const handleFilterKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => { if (event.key === 'Enter' && !loadingFilter) { handleFilterJobs(); } };
   const canAnalyzeExtras = !!analysisResult?.commonStack && !analysisResult.commonStack.toLowerCase().includes('could not parse');
 
-  // *** ADD Export Handler ***
+  // *** Update Export Handler ***
   const handleExportAnalysis = useCallback(() => {
-    if (!analysisResult) return; // Should not happen if button is enabled, but good practice
+    if (!analysisResult) return;
 
     // 1. Gather the data
     const {
@@ -479,6 +482,8 @@ export default function Home() {
         jobPrioritization,
         experienceSummary,
         marketInsights,
+        detailedTrends,
+        competitiveLandscape, // <-- NEW: Get landscape data
         topCompanies,
         topLocations
     } = analysisResult;
@@ -492,6 +497,16 @@ export default function Home() {
     exportContent += `---\n\n`;
 
     exportContent += `## Overall Market Insights\n\n${marketInsights || 'N/A'}\n\n`;
+    exportContent += `---\n\n`;
+
+    // --- NEW: Conditionally Add Competitive Landscape to Export ---
+    if (competitiveLandscape && !competitiveLandscape.toLowerCase().includes('could not parse') && !competitiveLandscape.toLowerCase().includes('requires a resume')) {
+        exportContent += `## Competitive Landscape Analysis (Resume vs. Market)\n\n${competitiveLandscape}\n\n`;
+        exportContent += `---\n\n`;
+    }
+    // --- END NEW ---
+
+    exportContent += `## Detailed Market Trends & Insights\n\n${detailedTrends || 'N/A'}\n\n`;
     exportContent += `---\n\n`;
 
     exportContent += `## Top Job Recommendations\n\n${jobPrioritization || 'N/A'}\n\n`;
@@ -585,7 +600,7 @@ export default function Home() {
               />
             </div>
           </div>
-           <div style={{width: '100%', marginTop: '1rem'}}> {/* Wrapper for label + textarea */}
+           <div className={styles.resumeTextareaContainer}> {/* Added Wrapper */}
                <label htmlFor="resumeInputInitial" className={styles.inputLabel}>2. (Optional) Paste Resume for Personalized Priority:</label>
                <textarea
                    id="resumeInputInitial"
@@ -600,7 +615,7 @@ export default function Home() {
                <p className={styles.infoText}>Providing your resume will tailor the 'Job Prioritization' section to jobs matching your profile.</p>
            </div>
            {/* Move Button Below Textarea */}
-           <div style={{marginTop: '1rem', textAlign: 'right'}}>
+           <div style={{marginTop: '1.5rem', textAlign: 'right'}}> {/* Increased top margin */}
             <button onClick={handleAnalyzeMarket} disabled={loading || !userRoleQuery.trim()} className={styles.analyzeButton} >
                  {loading ? ( <>{/* Spinner */} Analyzing Market...</> ) : ( "Analyze Market" )}
             </button>
@@ -632,8 +647,8 @@ export default function Home() {
         {analysisResult && !loading && !error && (
           <div className={styles.allResultsContainer}>
 
-            {/* --- NEW: Overall Market Insights Section --- */}
-            <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopMedium} ${styles.marginBottomMedium}`}>
+            {/* --- Overall Market Insights Section --- */}
+            <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marketInsightsCard}`}>
               <h2 className={styles.sectionTitle}>Overall Market Insights</h2>
               <div className={styles.analysisContent}>
                 {(analysisResult.marketInsights && !analysisResult.marketInsights.toLowerCase().includes('could not parse'))
@@ -642,10 +657,35 @@ export default function Home() {
                 }
               </div>
             </section>
-            {/* --- END NEW --- */}
+
+            {/* --- Detailed Market Trends Section --- */}
+            <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marketInsightsCard}`}>
+              <h2 className={styles.sectionTitle}>Detailed Market Trends & Insights</h2>
+              <div className={styles.analysisContent}>
+                {(analysisResult.detailedTrends && !analysisResult.detailedTrends.toLowerCase().includes('could not parse'))
+                  ? <ReactMarkdown>{analysisResult.detailedTrends}</ReactMarkdown>
+                  : <p className={styles.noResultsText}>Could not generate detailed market trends.</p>
+                }
+              </div>
+            </section>
+
+            {/* --- Competitive Landscape Section (Conditional) --- */}
+            {hasResumeProvided && ( // Render this container only if resume was initially provided
+              <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.competitiveLandscapeCard}`}>
+                <h2 className={styles.sectionTitle}>Competitive Landscape Analysis <span className={styles.titleSubText}>(Resume vs. Market)</span></h2>
+                 {/* Check if analysis was expected but not generated/parsed */}
+                 {(analysisResult.competitiveLandscape === null || (typeof analysisResult.competitiveLandscape === 'string' && (analysisResult.competitiveLandscape.toLowerCase().includes('could not parse') || analysisResult.competitiveLandscape.toLowerCase().includes('requires a resume')))) ? (
+                    <p className={styles.noResultsText}>Competitive analysis could not be generated (requires resume and successful parsing).</p>
+                 ) : (
+                    <div className={styles.analysisContent}>
+                      <ReactMarkdown>{analysisResult.competitiveLandscape!}</ReactMarkdown>
+                    </div>
+                 )}
+              </section>
+            )}
 
             {/* *** Export Button *** */}
-            <div style={{ marginBottom: '1.5rem', textAlign: 'right' }}>
+            <div style={{ textAlign: 'right' }}> {/* Removed mb as gap handles spacing */}
               <button
                 onClick={handleExportAnalysis}
                 className={styles.analyzeButtonSmall}
@@ -657,19 +697,46 @@ export default function Home() {
             </div>
 
             {/* --- Job List Section (Full List - Filter/Similar) --- */}
-            <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
-               {/* ... Title ... */}
-               <h2 className={styles.sectionTitle}>
-                    {displayMode === 'similar' && `Similar Jobs to "${similarJobsSourceTitle || 'Selected Job'}"`}
-                    {displayMode === 'filtered' && `Filtered Job Listings (${jobsToDisplay.length} matching)`}
-                    {displayMode === 'initial' && `All Scraped Job Listings (${(analysisResult.jobListings || []).length} found)`}
-                </h2>
-               {/* ... Filter Input Area ... */}
-                {displayMode !== 'similar' && ( <div className={`${styles.inputWrapper} ${styles.marginBottomMedium}`}> {/* ... filter input/buttons ... */} </div> )}
-               {/* ... Back Button ... */}
-               {/* ... Loading/Error for Filter/Similar ... */}
-               {/* ... The Job List Itself (ul/li loop) ... */}
-                 {jobsToDisplay.length > 0 ? (
+            <section className={`${styles.resultCard} ${styles.fullWidthCard}`}>
+               <div className={styles.jobListHeader}> {/* Group title/filter */}
+                  <div className={styles.jobListTitleContainer}>
+                    <h2 className={styles.sectionTitle} style={{ borderBottom: 'none', marginBottom: 0 }}> {/* Remove border/margin from h2 */}
+                      {displayMode === 'similar' && `Similar Jobs to "${similarJobsSourceTitle || 'Selected Job'}"`}
+                      {displayMode === 'filtered' && `Filtered Job Listings (${jobsToDisplay.length} matching)`}
+                      {displayMode === 'initial' && `All Scraped Job Listings (${(analysisResult.jobListings || []).length} found)`}
+                    </h2>
+                    {(displayMode === 'filtered' || displayMode === 'similar') && (
+                      <button onClick={handleClearFilter} className={`${styles.analyzeButtonSmall} ${styles.jobActionButton}`} title="Show all initial jobs">
+                        Show All Jobs
+                      </button>
+                    )}
+                  </div>
+
+                  {displayMode !== 'similar' && (
+                    <div className={styles.jobListFilterContainer}>
+                      <input
+                        type="text"
+                        value={filterQuery}
+                        onChange={(e) => setFilterQuery(e.target.value)}
+                        onKeyPress={handleFilterKeyPress}
+                        placeholder="Filter results by keyword..."
+                        className={styles.filterInput}
+                        disabled={loadingFilter}
+                      />
+                      <button onClick={handleFilterJobs} disabled={loadingFilter || !filterQuery.trim()} className={styles.analyzeButtonSmall}>
+                         {loadingFilter ? 'Filtering...' : 'Filter'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {/* Loading/Error for Filter/Similar */}
+                {loadingFilter && <div className={styles.sectionLoadingIndicator}>Filtering jobs...</div>}
+                {errorFilter && <div className={styles.sectionErrorBox} role="alert">{errorFilter}</div>}
+                {loadingSimilar && <div className={styles.sectionLoadingIndicator}>Finding similar jobs...</div>}
+                {errorSimilar && <div className={styles.sectionErrorBox} role="alert">{errorSimilar}</div>}
+
+                {/* The Job List Itself */}
+                {jobsToDisplay.length > 0 ? (
                    <ul className={styles.jobList}>
                        {jobsToDisplay.map((job: JobListing, index: number) => {
                           // Use URL as the key for state management
@@ -743,37 +810,42 @@ export default function Home() {
                    </ul>
                ) : (
                     <p className={styles.noResultsText}>
-                       {loadingFilter || loadingSimilar ? '' : (displayMode === 'filtered' ? 'No jobs match your filter.' : (displayMode === 'similar' ? 'Could not find similar jobs.' : 'No jobs found initially.'))}
-                   </p>
+                         {/* Adjusted no results text */}
+                         {!loadingFilter && !loadingSimilar &&
+                           (displayMode === 'filtered' ? 'No jobs match your filter.' :
+                           (displayMode === 'similar' ? 'Could not find similar jobs.' :
+                           'No jobs found initially.'))
+                         }
+                      </p>
                )}
            </section>
 
           {/* --- Top Job Recommendations Section --- */}
-           <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
+                 <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.recommendationsCard}`}>
               <h2 className={styles.sectionTitle}>
-                  Top Job Recommendations
-                  <span className={styles.titleSubText}>
-                      {(analysisResult.jobPrioritization || '').includes("based on your resume")
-                          ? " (Top matches for your resume from relevant jobs found)"
-                          : " (Top matches for your query from relevant jobs found)"}
-                  </span>
+                Top Job Recommendations
+                <span className={styles.titleSubText}>
+                    {(analysisResult.jobPrioritization || '').includes("based on your resume")
+                        ? " (Top matches for your resume)"
+                        : " (Top matches for your query)"}
+                </span>
               </h2>
               <div className={`${styles.analysisContent} ${styles.jobRecommendationsContent}`}>
                   {(analysisResult.jobPrioritization && !analysisResult.jobPrioritization.toLowerCase().includes('could not parse'))
                    ? <ReactMarkdown>{analysisResult.jobPrioritization}</ReactMarkdown>
-                   : <p className={styles.noResultsText}>Could not generate job recommendations. Please try again or refine your query.</p>
+                   : <p className={styles.noResultsText}>Could not generate job recommendations.</p>
                   }
               </div>
-           </section>
+                 </section>
 
 
           {/* --- Market Statistics Section - UPDATED --- */}
-           <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
-               <h2 className={styles.sectionTitle}>Market Statistics (Based on Scraped Jobs)</h2>
-               <div className={styles.statsGrid}>
+                 <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.statisticsCard}`}>
+                     <h2 className={styles.sectionTitle}>Market Statistics <span className={styles.titleSubText}>(Based on Scraped Jobs)</span></h2>
+                     <div className={styles.statsGrid}>
                    {/* --- Top Companies Chart --- */}
                   <div className={styles.chartContainer}>
-                       <h3 className={styles.statsSubtitle}>Top Hiring Companies:</h3>
+                             <h3 className={styles.statsSubtitle}>Top Hiring Companies:</h3>
                       {(analysisResult.topCompanies && analysisResult.topCompanies.length > 0) ? (
                           <div className={styles.chartWrapper}>
                               <Bar
@@ -786,12 +858,12 @@ export default function Home() {
                                   )}
                               />
                           </div>
-                      ) : <p className={styles.noResultsText}>N/A</p>}
-                  </div>
+                             ) : <p className={styles.noResultsText}>N/A</p>}
+                         </div>
 
                    {/* --- Top Locations Chart --- */}
                   <div className={styles.chartContainer}>
-                       <h3 className={styles.statsSubtitle}>Top Locations:</h3>
+                              <h3 className={styles.statsSubtitle}>Top Locations:</h3>
                        {(analysisResult.topLocations && analysisResult.topLocations.length > 0) ? (
                            <div className={styles.chartWrapper}>
                                <Bar
@@ -804,63 +876,65 @@ export default function Home() {
                                    )}
                                />
                            </div>
-                       ) : <p className={styles.noResultsText}>N/A</p>}
-                   </div>
+                              ) : <p className={styles.noResultsText}>N/A</p>}
+                          </div>
 
                    {/* --- Experience Level (remains text) --- */}
-                    <div className={styles.statsFullSpan}>
-                        <h3 className={styles.statsSubtitle}>Typical Experience Level:</h3>
-                        <div className={styles.analysisContent}> <ReactMarkdown>{analysisResult.experienceSummary || 'N/A'}</ReactMarkdown> </div>
-                    </div>
-               </div>
-           </section>
+                          <div className={styles.statsFullSpan}>
+                              <h3 className={styles.statsSubtitle}>Typical Experience Level:</h3>
+                              <div className={styles.analysisContent}> <ReactMarkdown>{analysisResult.experienceSummary || 'N/A'}</ReactMarkdown> </div>
+                          </div>
+                     </div>
+                 </section>
 
-           {/* --- Search Strategy Section --- */}
-           <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
-               <div className={styles.skillGapHeader}>
-                   <h2 className={styles.sectionTitle}>Personalized Search Strategy</h2>
-                   <button onClick={handleGetStrategy} disabled={loadingStrategy || !canAnalyzeExtras} className={styles.analyzeButtonSmall}>
-                       {loadingStrategy ? ( <> {/* Spinner */} Generating...</> ) : ( "Get Strategy Tips" )}
-                   </button>
-               </div>
-               {!canAnalyzeExtras && <p className={styles.infoText}>Run 'Analyze Market' first.</p>}
-               {errorStrategy && <div className={styles.errorBoxSmall} role="alert">{errorStrategy}</div>}
-               {strategyTips && !loadingStrategy && !errorStrategy && (
-                    <div className={`${styles.analysisContent} ${styles.marginTopMedium}`}> <ReactMarkdown>{strategyTips}</ReactMarkdown> </div>
-                )}
-           </section>
+                 {/* --- Search Strategy Section --- */}
+                 <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.supplementaryAnalysisCard}`}>
+                     <div className={styles.skillGapHeader}>
+                         <h2 className={styles.sectionTitle} style={{ borderBottom: 'none', marginBottom: 0 }}>Personalized Search Strategy</h2>
+                         <button onClick={handleGetStrategy} disabled={loadingStrategy || !canAnalyzeExtras} className={styles.analyzeButtonSmall}>
+                             {loadingStrategy ? ( <> {/* Spinner */} Generating...</> ) : ( "Get Strategy Tips" )}
+                         </button>
+                     </div>
+                     {loadingStrategy && <div className={styles.sectionLoadingIndicator}><svg className={styles.spinnerSmall} viewBox="0 0 50 50"> {/* Add small spinner */} <circle className={styles.spinnerCircle} cx="25" cy="25" r="20" fill="none" strokeWidth="5"></circle><circle className={styles.spinnerPath} cx="25" cy="25" r="20" fill="none" strokeWidth="5" strokeLinecap="round"><animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"></animateTransform></circle></svg> Generating Strategy...</div>}
+                     {!canAnalyzeExtras && !loadingStrategy && <p className={styles.infoText}>Requires successful market analysis first.</p>}
+                     {errorStrategy && <div className={styles.sectionErrorBox} role="alert">{errorStrategy}</div>}
+                     {strategyTips && !loadingStrategy && !errorStrategy && (
+                          <div className={`${styles.analysisContent} ${styles.marginTopMedium}`}> <ReactMarkdown>{strategyTips}</ReactMarkdown> </div>
+                      )}
+                 </section>
 
           {/* --- Resume Analysis Section (Optional - can still use for separate feedback) --- */}
-           <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
-               <h2 className={styles.sectionTitle}>Resume Fitness Analysis <span className={styles.titleSubText}>(Detailed Feedback vs. Market)</span></h2>
+                 <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.supplementaryAnalysisCard}`}>
+               <h2 className={styles.sectionTitle} style={{ borderBottom: 'none', marginBottom: 0 }}>Resume Fitness Analysis <span className={styles.titleSubText}>(Detailed Feedback)</span></h2>
                {!resumeText && <p className={styles.infoText}>Paste resume above to enable detailed analysis.</p>}
-               <button onClick={handleAnalyzeResume} disabled={loadingResume || !resumeText.trim() || !canAnalyzeExtras} className={`${styles.analyzeButtonSmall} ${styles.marginTopMedium}`}>
+               <button onClick={handleAnalyzeResume} disabled={loadingResume || !hasResumeProvided || !canAnalyzeExtras} className={styles.analyzeButtonSmall}>
                    {loadingResume ? ( <> {/* Spinner */} Analyzing...</> ) : ( "Get Detailed Resume Feedback" )}
-               </button>
-               {loadingResume && <div className={styles.loadingIndicator} style={{padding: '1rem 0'}}><p>Loading feedback...</p></div>}
-               {errorResume && <div className={styles.errorBoxSmall} role="alert">{errorResume}</div>}
+                     </button>
+               {loadingResume && <div className={styles.sectionLoadingIndicator}><svg className={styles.spinnerSmall} viewBox="0 0 50 50"><circle className={styles.spinnerCircle} cx="25" cy="25" r="20" fill="none" strokeWidth="5"></circle><circle className={styles.spinnerPath} cx="25" cy="25" r="20" fill="none" strokeWidth="5" strokeLinecap="round"><animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"></animateTransform></circle></svg> Analyzing Resume...</div>}
+                     {errorResume && <div className={styles.sectionErrorBox} role="alert">{errorResume}</div>}
                {resumeAnalysisResult && !loadingResume && !errorResume && (
                    <div className={`${styles.analysisContent} ${styles.marginTopMedium}`}> <ReactMarkdown>{resumeAnalysisResult}</ReactMarkdown> </div>
                )}
-           </section>
+                 </section>
 
-           {/* --- Skill Gap & Learning Section --- */}
-            <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.marginTopLarge}`}>
-                <div className={styles.skillGapHeader}>
-                    <h2 className={styles.sectionTitle}>Skill Gap & Learning Recommendations</h2>
-                    <button onClick={handleAnalyzeSkillGap} disabled={loadingSkillGap || !canAnalyzeExtras} className={styles.analyzeButtonSmall}>
-                        {loadingSkillGap ? ( <> {/* Spinner */} Analyzing...</> ) : ( "Analyze Skill Gaps" )}
-                    </button>
-                </div>
-                {!canAnalyzeExtras && <p className={styles.infoText}>Run 'Analyze Market' first.</p>}
-                {errorSkillGap && <div className={styles.errorBoxSmall} role="alert">{errorSkillGap}</div>}
-                {skillGapResult && !loadingSkillGap && !errorSkillGap && ( <div className={`${styles.analysisContent} ${styles.marginTopMedium}`}> <ReactMarkdown>{skillGapResult}</ReactMarkdown> </div> )}
-            </section>
+                 {/* --- Skill Gap & Learning Section --- */}
+                  <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.supplementaryAnalysisCard}`}>
+                      <div className={styles.skillGapHeader}>
+                          <h2 className={styles.sectionTitle} style={{ borderBottom: 'none', marginBottom: 0 }}>Skill Gap & Learning Recommendations</h2>
+                          <button onClick={handleAnalyzeSkillGap} disabled={loadingSkillGap || !canAnalyzeExtras} className={styles.analyzeButtonSmall}>
+                              {loadingSkillGap ? ( <> {/* Spinner */} Analyzing...</> ) : ( "Analyze Skill Gaps" )}
+                          </button>
+                      </div>
+                      {loadingSkillGap && <div className={styles.sectionLoadingIndicator}><svg className={styles.spinnerSmall} viewBox="0 0 50 50"><circle className={styles.spinnerCircle} cx="25" cy="25" r="20" fill="none" strokeWidth="5"></circle><circle className={styles.spinnerPath} cx="25" cy="25" r="20" fill="none" strokeWidth="5" strokeLinecap="round"><animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"></animateTransform></circle></svg> Analyzing Gaps...</div>}
+                      {!canAnalyzeExtras && !loadingSkillGap && <p className={styles.infoText}>Requires successful market analysis first.</p>}
+                      {errorSkillGap && <div className={styles.sectionErrorBox} role="alert">{errorSkillGap}</div>}
+                      {skillGapResult && !loadingSkillGap && !errorSkillGap && ( <div className={`${styles.analysisContent} ${styles.marginTopMedium}`}> <ReactMarkdown>{skillGapResult}</ReactMarkdown> </div> )}
+                  </section>
 
           {/* --- Original Analysis Grid (Stack & Projects) --- */}
-          <div className={`${styles.resultsGrid} ${styles.marginTopLarge}`}>
+                <div className={`${styles.resultsGrid}`}> {/* Removed marginTopLarge */}
              {/* --- Common Tech Stack (Filtered & Rendered Directly) --- */}
-             <section className={`${styles.resultCard} ${styles.analysisColumn}`}>
+             <section className={`${styles.resultCard} ${styles.analysisColumn} ${styles.coreAnalysisCard}`}>
                <h2 className={styles.sectionTitle}>
                  Common Tech Stack <span className={styles.titleSubText}>(Skills mentioned in ≥10% of jobs)</span>
                </h2>
@@ -893,25 +967,25 @@ export default function Home() {
                     <p className={styles.noResultsText}>Could not analyze tech stack.</p>
                  )}
                </div>
-            </section>
+                  </section>
 
              {/* --- Suggested Projects (Still uses ReactMarkdown) --- */}
-             <section className={`${styles.resultCard} ${styles.analysisColumn}`}>
+             <section className={`${styles.resultCard} ${styles.analysisColumn} ${styles.coreAnalysisCard}`}>
                <h2 className={styles.sectionTitle}>Suggested Portfolio Projects <span className={styles.titleSubText}>(Based on Prioritized Jobs)</span></h2>
                <div className={styles.analysisContent}>
                   {(analysisResult.projectIdeas && !analysisResult.projectIdeas.toLowerCase().includes('could not parse'))
                       ? <ReactMarkdown>{analysisResult.projectIdeas}</ReactMarkdown>
                       : <p className={styles.noResultsText}>Could not generate project ideas.</p>
                   }
-            </div>
+                  </div>
              </section>
 
-          </div>
+                </div>
 
-          {/* Disclaimer */}
-          <p className={styles.disclaimer}>{analysisResult.analysisDisclaimer}</p>
+                {/* Disclaimer */}
+                <p className={styles.disclaimer}>{analysisResult.analysisDisclaimer}</p>
 
-        </div> // End allResultsContainer
+          </div> // End allResultsContainer
         )}
       </div>
     </main>

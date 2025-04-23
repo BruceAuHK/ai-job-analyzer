@@ -2,10 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import puppeteer, { Browser, Page } from 'puppeteer';
 import path from 'path'; // Needed for resolving DB path
-// Remove Vector DB imports for this route
-// import { getVectorDbCollection, generateEmbedding, generateEmbeddingsBatch } from '@/utils/vectorDb';
-
-// --- RAG Imports Removed ---
+import { getVectorDbCollection, generateEmbeddingsBatch } from '@/utils/vectorDb';
 
 // Gemini API Details
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -302,15 +299,15 @@ export async function POST(request: NextRequest) {
         // === Step 4: Prepare Prompt for Gemini (Using ALL Scraped Context) ===
         console.log(`Context length for LLM: ${allScrapedJobContext.length} chars. Has Resume: ${hasResume}`);
 
-        // --- UPDATED Prioritization Instructions (Attempt 3 for Link Formatting) ---
+        // --- UPDATED Prioritization Instructions (Reduce Job Count) ---
         const prioritizationInstruction = hasResume
-            ? `Analyze the **Scraped Job Information provided below** and identify the most relevant jobs for the candidate based on their resume. **List at least 20 jobs, up to a maximum of 25, prioritizing the most promising ones first** based on the following factors:
+            ? `Analyze the **Scraped Job Information provided below** and identify the most relevant jobs for the candidate based on their resume. **List the top 15 jobs, prioritizing the most promising ones first** based on the following factors:
               1.  **Strong Resume Match:** How well the **candidate's resume (provided below)** aligns with the job's core requirements (skills, experience). This is the primary factor.
               2.  **Potential Growth:** Roles that mention learning opportunities, clear career paths, exposure to new technologies, or significant project impact.
               3.  **Tech Stack Value:** Jobs utilizing modern, in-demand, or strategically valuable technologies.
               4.  **Job Function Value:** Roles offering valuable experience for career progression.
 
-              **For each listed job (up to 25), provide a detailed analysis including the following, formatted EXACTLY as shown:**
+              **For each listed job (up to 15), provide a detailed analysis including the following, formatted EXACTLY as shown:**
 
               1. [Job Title](URL)
                   *   **Overall Fit & Potential:** (1-2 sentences explaining the core match based on resume AND highlighting the job's potential based on growth/tech/function value).
@@ -324,16 +321,16 @@ export async function POST(request: NextRequest) {
                   *   **Potential Gaps/Concerns:** (1-2 bullet points mentioning areas where the resume might fall short OR other considerations like required travel, niche domain).
 
               **Ensure the markdown link for the title is correctly formed using square brackets around the title and parentheses around the URL: [TITLE](URL).**
-              Ensure there is a blank line (double newline in markdown) separating each complete numbered job analysis (including all its sub-points) from the next. **List at least 20 jobs if available and relevant, but no more than 25.**
+              Ensure there is a blank line (double newline in markdown) separating each complete numbered job analysis (including all its sub-points) from the next. **List up to 15 jobs if available and relevant.**
               **Important: Do NOT include any disclaimers about not being able to access external websites or analyze the provided text. Perform the analysis based SOLELY on the job descriptions and resume text given in this prompt. Do NOT add any concluding summary sentence after the final numbered job analysis.**
               Start this section *exactly* with "3. Job Prioritization (based on your resume & potential):".`
-            : `Analyze the **Scraped Job Information provided below** and identify the most relevant jobs based on the user's query: "${userRoleQuery}". **List at least 20 jobs, up to a maximum of 25, prioritizing the most promising ones first** based on the following factors:
+            : `Analyze the **Scraped Job Information provided below** and identify the most relevant jobs based on the user's query: "${userRoleQuery}". **List the top 15 jobs, prioritizing the most promising ones first** based on the following factors:
               1.  **Relevance to Query:** How well the job description aligns with the user's search query. This is the primary factor.
               2.  **Potential Growth:** Roles that mention learning opportunities, clear career paths, exposure to new technologies, or significant project impact.
               3.  **Tech Stack Value:** Jobs utilizing modern, in-demand, or strategically valuable technologies relevant to the query.
               4.  **Job Function Value:** Roles offering valuable experience for career progression in the query's field.
 
-              **For each listed job (up to 25), provide a detailed analysis including the following, formatted EXACTLY as shown:**
+              **For each listed job (up to 15), provide a detailed analysis including the following, formatted EXACTLY as shown:**
 
               1. [Job Title](URL)
                   *   **Relevance & Potential:** (1-2 sentences explaining how the job description aligns with the query AND highlighting the job's potential based on growth/tech/function value).
@@ -346,7 +343,7 @@ export async function POST(request: NextRequest) {
                   *   **Potential Considerations:** (1-2 bullet points mentioning factors a user might want to consider, e.g., required experience level, specific domain knowledge).
 
               **Ensure the markdown link for the title is correctly formed using square brackets around the title and parentheses around the URL: [TITLE](URL).**
-              Ensure there is a blank line (double newline in markdown) separating each complete numbered job analysis (including all its sub-points) from the next. **List at least 20 jobs if available and relevant, but no more than 25.**
+              Ensure there is a blank line (double newline in markdown) separating each complete numbered job analysis (including all its sub-points) from the next. **List up to 15 jobs if available and relevant.**
                **Important: Do NOT include any disclaimers about not being able to access external websites or analyze the provided text. Perform the analysis based SOLELY on the job descriptions given in this prompt. Do NOT add any concluding summary sentence after the final numbered job analysis.**
               Start this section *exactly* with "3. Job Prioritization (based on query & potential):".`;
         // --- END UPDATED Prioritization Instructions ---
@@ -355,6 +352,30 @@ export async function POST(request: NextRequest) {
         const marketInsightsInstruction = `
           5.  **Overall Market Insights:** Based on all the preceding analysis (common skills, experience levels, job functions) from the provided job descriptions, provide a concise (3-5 sentence) summary of the current job market for a '${userRoleQuery}' in Hong Kong. Comment on the general demand level (implied by the number/types of jobs), the most critical skill areas to possess, and the typical experience range sought.
               Start this section *exactly* with "5. Overall Market Insights:".`;
+        // --- END NEW ---
+
+        // --- NEW: Define Detailed Market Trends Instruction ---
+        const detailedTrendsInstruction = `
+          6.  **Detailed Market Trends & Insights:** Analyze all provided job descriptions for '${userRoleQuery}' to identify broader trends:
+              *   **Key Skill Clusters:** What technical or soft skills frequently appear together in job requirements? (List 2-3 common clusters).
+              *   **Emerging vs. Core Skills:** Are there any skills mentioned that seem newer or more cutting-edge compared to consistently required core skills? (Mention 1-2 if apparent).
+              *   **Role Variations:** Are there distinct types or specializations of '${userRoleQuery}' apparent from the descriptions (e.g., focus on research vs. implementation, specific industry applications)? (Mention 1-2 variations if clear).
+              *   **Hiring Company Profile:** Based *only* on the job descriptions and company names provided, what types of companies (e.g., startups, large enterprises, finance, tech) seem to be hiring most actively for this role? (Briefly summarize).
+              Present these findings clearly with bullet points under the relevant subheadings provided above.
+              Start this section *exactly* with "6. Detailed Market Trends & Insights:".`;
+        // --- END NEW ---
+
+        // --- NEW: Define Competitive Landscape Instruction (Conditional) ---
+        const competitiveLandscapeInstruction = hasResume
+            ? `
+          7.  **Competitive Landscape Analysis (Resume vs. Market):** Compare the provided **User's Resume Text** against the **Common Tech Stack** (Task 1) and **Experience Level Summary** (Task 4) derived from the job market analysis. Provide a concise (3-5 bullet points) assessment covering:
+              *   **Overall Alignment:** How well does the candidate's profile generally align with the overall market demands identified?
+              *   **Key Strengths vs. Market:** What specific skills/experiences from the resume are particularly strong assets in this market context?
+              *   **Potential Competitive Gaps:** Where might the candidate face the strongest competition based on common market requirements identified in the stack/experience analysis (e.g., needing deeper experience in a core skill, lacking a frequently mentioned technology)?
+              *   **Positioning Advice:** Briefly suggest how the candidate might position themselves effectively (e.g., emphasize specific niche skills, highlight relevant project experience).
+              Focus on the comparison between the *individual resume* and the *aggregate market data*.
+              Start this section *exactly* with "7. Competitive Landscape Analysis (Resume vs. Market):".`
+            : ''; // Empty string if no resume provided
         // --- END NEW ---
 
         const prompt = `
@@ -384,7 +405,13 @@ export async function POST(request: NextRequest) {
           4.  **Experience Level Summary:** Analyze required years of experience (e.g., 'X+ years', 'minimum Y years', 'fresh graduates') mentioned across **all** the provided job descriptions. Summarize typical levels sought (e.g., 'Mostly Mid-Level (3-7 years)', 'Mix of Junior and Senior', 'Entry-Level focus'). If rarely mentioned, state that.
               Start this section *exactly* with "4. Experience Level Summary:".
 
-          ${marketInsightsInstruction}
+          5.  **Overall Market Insights:**
+              ${marketInsightsInstruction}
+
+          6.  **Detailed Market Trends & Insights:**
+              ${detailedTrendsInstruction}
+
+          ${competitiveLandscapeInstruction}
 
           --- Scraped Job Information (Found: ${jobsWithDescriptions.length}) ---
           ${allScrapedJobContext}
@@ -452,20 +479,27 @@ export async function POST(request: NextRequest) {
         let jobPrioritization = "Could not parse prioritization.";
         let experienceSummary = "Could not parse experience summary.";
         let marketInsights = "Could not parse market insights.";
+        let detailedTrends = "Could not parse detailed trends.";
+        let competitiveLandscape = "Competitive analysis requires a resume.";
 
-        // Define Markers
+        // Define Markers (More Flexible)
         const stackMarker = /^\s*1\.\s+Common Tech Stack:/mi;
         const projectMarker = /^\s*2\.\s+Suggested Project Ideas:/mi;
         const priorityMarker = /^\s*3\.\s+Job Prioritization\s*\(based on (?:your resume|query)\s*(?:(?:&|and)\s*potential)?\):/mi;
         const experienceMarker = /^\s*4\.\s+Experience Level Summary:/mi;
-        const insightsMarker = /^\s*5\.\s+Overall Market Insights:/mi;
+        // Allow potential variations in numbering or leading whitespace for insights/trends/landscape
+        const insightsMarker = /^\s*\d*\.?\s*Overall Market Insights:/mi; // Optional number & dot
+        const trendsMarker = /^\s*\d*\.?\s*Detailed Market Trends & Insights:/mi; // Optional number & dot
+        const landscapeMarker = /^\s*\d*\.?\s*Competitive Landscape Analysis\s*\(Resume vs\. Market\):/mi; // Optional number & dot
 
         // Match Markers
         const stackMatch = analysisText.match(stackMarker);
         const projectMatch = analysisText.match(projectMarker);
         const priorityMatch = analysisText.match(priorityMarker);
         const experienceMatch = analysisText.match(experienceMarker);
-        const insightsMatch = analysisText.match(insightsMarker);
+        const insightsMatch = analysisText.match(insightsMarker); // Use updated marker
+        const trendsMatch = analysisText.match(trendsMarker);     // Use updated marker
+        const landscapeMatch = hasResume ? analysisText.match(landscapeMarker) : null; // Use updated marker
 
         // Log Match Results
         console.log("Marker Match Results:", {
@@ -473,7 +507,9 @@ export async function POST(request: NextRequest) {
            project: projectMatch ? `Found at index ${projectMatch.index}` : "Not Found",
            priority: priorityMatch ? `Found at index ${priorityMatch.index}` : "Not Found",
            experience: experienceMatch ? `Found at index ${experienceMatch.index}` : "Not Found",
-           insights: insightsMatch ? `Found at index ${insightsMatch.index}` : "Not Found"
+           insights: insightsMatch ? `Found at index ${insightsMatch.index}` : "Not Found",
+           trends: trendsMatch ? `Found at index ${trendsMatch.index}` : "Not Found",
+           landscape: landscapeMatch ? `Found at index ${landscapeMatch.index}` : (hasResume ? "Not Found" : "Not Applicable (No Resume)") // <-- NEW Log
         });
 
         // Calculate Indices
@@ -482,6 +518,8 @@ export async function POST(request: NextRequest) {
         const priorityIdx = priorityMatch?.index ?? -1;
         const experienceIdx = experienceMatch?.index ?? -1;
         const insightsIdx = insightsMatch?.index ?? -1;
+        const trendsIdx = trendsMatch?.index ?? -1;
+        const landscapeIdx = landscapeMatch?.index ?? -1; // <-- NEW Index
 
         // Calculate Content Start Points
         const calculateContentStart = (match: RegExpMatchArray | null, index: number): number => {
@@ -495,6 +533,8 @@ export async function POST(request: NextRequest) {
         const priorityContentStart = calculateContentStart(priorityMatch, priorityIdx);
         const experienceContentStart = calculateContentStart(experienceMatch, experienceIdx);
         const insightsContentStart = calculateContentStart(insightsMatch, insightsIdx);
+        const trendsContentStart = calculateContentStart(trendsMatch, trendsIdx);
+        const landscapeContentStart = calculateContentStart(landscapeMatch, landscapeIdx); // <-- NEW Content Start
 
         // Sort sections found
         const sections = [
@@ -502,12 +542,16 @@ export async function POST(request: NextRequest) {
             { name: 'project', index: projectIdx, contentStart: projectContentStart },
             { name: 'priority', index: priorityIdx, contentStart: priorityContentStart },
             { name: 'experience', index: experienceIdx, contentStart: experienceContentStart },
-            { name: 'insights', index: insightsIdx, contentStart: insightsContentStart }
+            { name: 'insights', index: insightsIdx, contentStart: insightsContentStart },
+            { name: 'trends', index: trendsIdx, contentStart: trendsContentStart },
+            // Conditionally add landscape section only if the marker was found
+             ...(landscapeIdx !== -1 && landscapeContentStart !== -1 ? [{ name: 'landscape', index: landscapeIdx, contentStart: landscapeContentStart }] : [])
         ].filter(s => s.index !== -1 && s.contentStart !== -1).sort((a, b) => a.index - b.index);
 
         console.log("Found & Sorted Sections for Parsing:", sections.map(s => s.name));
 
         // Extract section text
+        if (hasResume) competitiveLandscape = "Could not parse competitive analysis."; // Reset default if resume exists but parsing fails
         for (let i = 0; i < sections.length; i++) {
             const currentSection = sections[i];
             const nextSection = sections[i + 1];
@@ -526,6 +570,8 @@ export async function POST(request: NextRequest) {
             else if (currentSection.name === 'priority') jobPrioritization = sectionText || jobPrioritization;
             else if (currentSection.name === 'experience') experienceSummary = sectionText || experienceSummary;
             else if (currentSection.name === 'insights') marketInsights = sectionText || marketInsights;
+            else if (currentSection.name === 'trends') detailedTrends = sectionText || detailedTrends;
+            else if (currentSection.name === 'landscape') competitiveLandscape = sectionText || competitiveLandscape; // <-- NEW Assignment
         }
         // --- End of Parsing Logic ---
 
@@ -551,6 +597,8 @@ export async function POST(request: NextRequest) {
              jobPrioritizationLength: jobPrioritization.length,
              experienceSummaryLength: experienceSummary.length,
              marketInsightsLength: marketInsights.length,
+             detailedTrendsLength: detailedTrends.length,
+             competitiveLandscapeLength: hasResume ? competitiveLandscape.length : "N/A", // <-- NEW Log item
              topCompaniesCount: topCompanies.length,
              topLocationsCount: topLocations.length,
              commonStackParsed: !commonStack.startsWith("Could not parse"),
@@ -558,6 +606,8 @@ export async function POST(request: NextRequest) {
              jobPrioritizationParsed: !jobPrioritization.startsWith("Could not parse"),
              experienceSummaryParsed: !experienceSummary.startsWith("Could not parse"),
              marketInsightsParsed: !marketInsights.startsWith("Could not parse"),
+             detailedTrendsParsed: !detailedTrends.startsWith("Could not parse"),
+             competitiveLandscapeParsed: hasResume ? !competitiveLandscape.startsWith("Could not parse") : "N/A", // <-- NEW Log item
          });
 
         return NextResponse.json({
@@ -567,6 +617,8 @@ export async function POST(request: NextRequest) {
             jobPrioritization: jobPrioritization,
             experienceSummary: experienceSummary,
             marketInsights: marketInsights,
+            detailedTrends: detailedTrends,
+            competitiveLandscape: hasResume ? competitiveLandscape : null, // <-- NEW Field (null if no resume)
             topCompanies: topCompanies,
             topLocations: topLocations,
             analysisDisclaimer: `Note: Stats from ${scrapedJobResults.length} scraped jobs. AI analysis prioritizes jobs based on fit and potential using ${jobsWithDescriptions.length} full descriptions sent directly to the model. Verify details.`,
