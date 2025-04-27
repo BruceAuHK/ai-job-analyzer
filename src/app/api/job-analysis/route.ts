@@ -59,8 +59,8 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
             args: chromium.args,
             defaultViewport: chromium.defaultViewport,
             executablePath: executablePath,
-            // Map 'new' headless mode from sparticuz to 'true' for puppeteer-core
-            headless: chromium.headless === 'new' ? true : chromium.headless
+            // Defaulting to true headless mode due to type inconsistencies with chromium.headless
+            headless: true
         });
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'); // Generic User Agent
