@@ -11,7 +11,12 @@ if (!GEMINI_API_KEY) {
 
 // Define a basic interface for the expected response
 interface GeminiResponse {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
+    candidates?: {
+        content?: { parts?: { text?: string }[] };
+        finishReason?: string;
+        // safetyRatings?: any[]; // Optional: Add if you need safetyRatings
+        // citationMetadata?: any; // Optional: Add if you need citationMetadata
+    }[];
     error?: { message?: string };
     promptFeedback?: { blockReason?: string };
 }
