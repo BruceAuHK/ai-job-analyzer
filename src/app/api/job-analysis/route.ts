@@ -92,10 +92,25 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
          }
          await delay(2000); // Wait for potential lazy loading
 
+        // --- Define interface for $$eval arguments ---
+        interface EvalArgs {
+            baseUrl: string;
+            itemSel: string;
+            titleSel: string;
+            companySel: string;
+            locationSel: string;
+            linkSel: string;
+        }
+
         // Part 2: Scrape Pages Loop (Same as before)
         while (currentPage <= maxPagesToScrape) {
             console.log(`--- Scraping Page ${currentPage} ---`);
-            const pageJobs: ScrapedJob[] = await page.$$eval(JOB_CARD_SELECTOR, (cards, selectors, pageNum) => {
+            // --- Assert types of args inside callback --- 
+            const pageJobs: ScrapedJob[] = await page.$$eval(JOB_CARD_SELECTOR, (cards, ...args) => {
+                // Assert types of the received arguments
+                const selectors = args[0] as EvalArgs;
+                const pageNum = args[1] as number;
+
                  // ... (inner logic for extracting title, company, location, url remains the same) ...
                 const jobs: ScrapedJob[] = [];
                  cards.forEach((card, index) => {
