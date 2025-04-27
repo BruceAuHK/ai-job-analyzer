@@ -173,12 +173,21 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
 
                 try {
                     console.log(` -> Starting detail ${jobIndexInTotal + 1}/${totalJobsToDescribe}: ${job.title?.substring(0, 30) || ''}...`);
-                    detailPage = await browser.newPage(); // Creates a new page context
+                    detailPage = await browser!.newPage(); // <-- Added non-null assertion
                     await detailPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-                 await detailPage.goto(job.url, { waitUntil: 'networkidle2', timeout: 60000 });
+
+                    // --- NEW: Check if job.url is valid before goto ---
+                    if (!job.url) {
+                        console.error(` -> Skipping job due to missing URL: ${job.title}`);
+                        throw new Error('Missing URL for job detail scrape'); // Throw to be caught below
+                    }
+                    // --- END NEW Check ---
+
+                    await detailPage.goto(job.url, { waitUntil: 'networkidle2', timeout: 60000 });
 
                     const descriptionSelector = await detailPage.waitForSelector(`${JOB_DESCRIPTION_SELECTOR_DETAIL}, #jobDescription`, { timeout: 25000, visible: true });
-                    const description = await descriptionSelector?.evaluate(el => el.innerText || el.textContent);
+                    // --- UPDATED: Assert el as HTMLElement --- 
+                    const description = await descriptionSelector?.evaluate(el => (el as HTMLElement).innerText || el.textContent);
 
                     // Return the description and the original URL to match later
                     return {
