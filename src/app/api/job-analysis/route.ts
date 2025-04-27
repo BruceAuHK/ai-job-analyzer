@@ -159,6 +159,18 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
             const promises = batchUrls.map(async (job, index) => {
                 let detailPage: Page | null = null;
                 const jobIndexInTotal = i + index; // Index relative to the totalJobsToDescribe
+
+                // --- NEW: Check if browser is available --- 
+                if (!browser) {
+                    console.error(` -> Browser instance not available for job: ${job.title}`);
+                    return {
+                        url: job.url,
+                        description: 'Failed: Browser not initialized.',
+                        success: false
+                    };
+                }
+                // --- END NEW Check --- 
+
                 try {
                     console.log(` -> Starting detail ${jobIndexInTotal + 1}/${totalJobsToDescribe}: ${job.title?.substring(0, 30) || ''}...`);
                     detailPage = await browser.newPage(); // Creates a new page context
