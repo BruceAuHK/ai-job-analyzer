@@ -9,6 +9,13 @@ if (!GEMINI_API_KEY) {
   console.error("Startup Warning: Missing GEMINI_API_KEY environment variable for deep-dive-analysis route.");
 }
 
+// Define a basic interface for the expected response
+interface GeminiResponse {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+    error?: { message?: string };
+    promptFeedback?: { blockReason?: string };
+}
+
 export async function POST(request: NextRequest) {
     const currentApiKey = process.env.GEMINI_API_KEY;
      if (!currentApiKey) {
@@ -69,20 +76,21 @@ export async function POST(request: NextRequest) {
         console.log(`Gemini Deep Dive API Response Status: ${geminiApiResponse.status} ${geminiApiResponse.statusText}`);
         const rawResponseText = await geminiApiResponse.text();
 
-        let geminiResponseData: any;
+        let geminiResponseData: GeminiResponse = {}; // Initialize with the interface type
         try {
              if (rawResponseText && rawResponseText.trim().startsWith('{')) {
-                 geminiResponseData = JSON.parse(rawResponseText);
+                 geminiResponseData = JSON.parse(rawResponseText) as GeminiResponse; // Assert type
              } else {
                  throw new Error(`Received non-JSON response or empty response from Gemini API. Status: ${geminiApiResponse.status}. Body starts with: ${rawResponseText.substring(0,100)}`);
              }
-        } catch (parseError: any) {
-             console.error("Deep Dive Analysis JSON Parsing Error:", parseError);
-             return NextResponse.json({ error: 'Failed to parse analysis response from AI model.', details: rawResponseText.substring(0, 500) }, { status: 500 });
+        } catch (parseError: unknown) {
+             console.error("Deep Dive JSON Parsing Error:", parseError);
+             const message = parseError instanceof Error ? parseError.message : 'Failed to parse AI response';
+             return NextResponse.json({ error: message, details: rawResponseText.substring(0, 500) }, { status: 500 });
         }
 
         if (!geminiApiResponse.ok) {
-             console.error("Gemini Deep Dive API Error Response (JSON):", geminiResponseData);
+             console.error("Deep Dive API Error Response (JSON):", geminiResponseData);
              const errorDetails = geminiResponseData.error?.message || `HTTP error! status: ${geminiApiResponse.status}`;
              return NextResponse.json({ error: `Failed to get deep dive analysis: ${errorDetails}` }, { status: geminiApiResponse.status });
         }
@@ -100,7 +108,10 @@ export async function POST(request: NextRequest) {
               return NextResponse.json({ error: `AI generation failed: ${finishReason}` }, { status: 500 });
           }
 
-        let analysisText = geminiResponseData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        let analysisText = '';
+         try {
+             analysisText = geminiResponseData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+         } catch { /* Catch block requires no variable if error object isn't used */ }
 
         if (!analysisText) {
              console.error("Gemini deep dive analysis response text empty after parsing structure.");
@@ -112,8 +123,9 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ deepDiveAnalysis: analysisText });
 
-    } catch (error: any) {
-        console.error("API Route Deep Dive Analysis Error:", error);
-        return NextResponse.json({ error: 'An internal server error occurred during deep dive analysis.' }, { status: 500 });
+    } catch (error: unknown) {
+        console.error("API Route Deep Dive Error:", error);
+        const message = error instanceof Error ? error.message : 'An internal server error occurred during deep dive analysis.';
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 } 

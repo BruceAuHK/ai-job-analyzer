@@ -9,6 +9,13 @@ if (!GEMINI_API_KEY) {
   console.error("Startup Warning: Missing GEMINI_API_KEY environment variable for skill-gap route.");
 }
 
+// Define a basic interface for the expected response
+interface GeminiResponse {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+    error?: { message?: string };
+    promptFeedback?: { blockReason?: string };
+}
+
 export async function POST(request: NextRequest) {
     const currentApiKey = process.env.GEMINI_API_KEY;
      if (!currentApiKey) {
@@ -50,30 +57,29 @@ export async function POST(request: NextRequest) {
         const rawResponseText = await geminiApiResponse.text();
         // console.log("Gemini Skill Gap API Raw Response Text:", rawResponseText); // Log full response if needed for debug
 
-        let geminiResponseData: any;
+        let geminiResponseData: GeminiResponse = {}; // Initialize with the interface type
         try {
             if (rawResponseText && rawResponseText.trim().startsWith('{')) {
-                 geminiResponseData = JSON.parse(rawResponseText);
+                 geminiResponseData = JSON.parse(rawResponseText) as GeminiResponse; // Assert type
              } else {
-                throw new Error(`Received non-JSON response or empty response from Gemini API. Status: ${geminiApiResponse.status}. Body starts with: ${rawResponseText.substring(0,100)}`);
+                throw new Error(`Received non-JSON response...`);
             }
-        } catch (parseError: any) {
+        } catch (parseError: unknown) {
             console.error("Skill Gap JSON Parsing Error:", parseError);
+             // No need to use 'parseError' variable if only logging it
             return NextResponse.json({ error: 'Failed to parse skill gap response from AI model.', details: rawResponseText.substring(0, 500) }, { status: 500 });
         }
 
         if (!geminiApiResponse.ok) {
              console.error("Gemini Skill Gap API Error Response (JSON):", geminiResponseData);
              const errorDetails = geminiResponseData.error?.message || `HTTP error! status: ${geminiApiResponse.status}`;
-             // Handle specific errors if needed
              return NextResponse.json({ error: `Failed to get skill gap analysis: ${errorDetails}` }, { status: geminiApiResponse.status });
         }
 
         let analysisText = '';
          try {
-             analysisText = geminiResponseData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-             // Add safety checks like before if needed
-         } catch (e: any) { /* Handle extraction error */ }
+             analysisText = geminiResponseData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+         } catch { /* Catch block requires no variable if error object isn't used */ }
 
         if (!analysisText) {
              console.error("Gemini skill gap response text empty after parsing structure.");
@@ -82,8 +88,10 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ skillGapAnalysis: analysisText });
 
-    } catch (error: any) {
+    } catch (error: unknown) { // Use 'unknown'
         console.error("API Route Skill Gap Error:", error);
-        return NextResponse.json({ error: 'An internal server error occurred during skill gap analysis.' }, { status: 500 });
+        // Type check error before accessing properties
+        const message = error instanceof Error ? error.message : 'An internal server error occurred during skill gap analysis.';
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }

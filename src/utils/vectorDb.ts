@@ -1,14 +1,15 @@
 import { ChromaClient, Collection } from 'chromadb';
 // Remove Transformers.js imports
 // import { pipeline, Pipeline, env } from '@xenova/transformers';
-import { GoogleGenerativeAI } from '@google/generative-ai'; // Use the official SDK for simplicity maybe? Or stick to fetch. Let's use fetch for consistency with other API calls.
+// Removed unused GoogleGenerativeAI import
+// import path from 'path';
 
 // Configuration
 const COLLECTION_NAME = "jobsdb_hk_listings_v1";
 // Use an environment variable for the Chroma URL for flexibility
 const CHROMA_URL = process.env.CHROMA_DB_URL || "http://localhost:8000";
 // Embedding Model Name - Use the one you requested, but keep standard as fallback comment
-const EMBEDDING_MODEL_NAME = process.env.EMBEDDING_MODEL_NAME || "models/gemini-embedding-exp-03-07"; // Or "models/text-embedding-004"
+// const EMBEDDING_MODEL_NAME = process.env.EMBEDDING_MODEL_NAME || "models/gemini-embedding-exp-03-07"; // Or "models/text-embedding-004"
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // Remove Transformers.js env settings
@@ -25,6 +26,13 @@ let collectionInstance: Collection | null = null;
 if (!GEMINI_API_KEY) {
     console.error("FATAL STARTUP ERROR: Missing GEMINI_API_KEY environment variable. Required for embedding generation.");
 }
+
+// --- Gemini Embedding API Setup ---
+// Fallback model if needed - ensure your key works with this
+// const EMBEDDING_MODEL_NAME = "text-embedding-004"; // Example model name, ensure compatibility
+const GEMINI_EMBEDDING_MODEL = "text-embedding-004";
+const GEMINI_EMBEDDING_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_EMBEDDING_MODEL}:embedContent?key=${GEMINI_API_KEY}`;
+const GEMINI_BATCH_EMBEDDING_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_EMBEDDING_MODEL}:batchEmbedContents?key=${GEMINI_API_KEY}`;
 
 async function initializeVectorDbClient(): Promise<ChromaClient> {
     if (!chromaClientInstance) {
@@ -52,163 +60,122 @@ async function initializeVectorDbClient(): Promise<ChromaClient> {
  * Throws an error if initialization fails.
  * No longer returns an extractor pipeline.
  */
-export async function getVectorDbCollection(): Promise<{ collection: Collection, client: ChromaClient }> {
-    try {
-        const client = await initializeVectorDbClient();
+export async function getVectorDbCollection():
+  Promise<{ collection: Collection; client: ChromaClient }> {
+  try {
+    const client = await initializeVectorDbClient();
 
-        if (!collectionInstance) {
-            console.log(`(vectorDb utils) Getting or creating Chroma collection: ${COLLECTION_NAME}`);
-            collectionInstance = await client.getOrCreateCollection({
-                name: COLLECTION_NAME,
-                // IMPORTANT: Specify embedding function details if needed, though chromadb client might not use it directly here
-                // Or configure the distance metric if known for the model (often COSINE for Google models)
-                 metadata: { "hnsw:space": "cosine" }
+    if (!collectionInstance) {
+      console.log(
+        `(vectorDb utils) Getting or creating Chroma collection: ${COLLECTION_NAME}`
+      );
+      collectionInstance = await client.getOrCreateCollection({
+        name: COLLECTION_NAME,
+        metadata: { "hnsw:space": "cosine" },
+      });
+      console.log(
+        `(vectorDb utils) Accessed Chroma collection: ${COLLECTION_NAME}`
+      );
+    }
+
+    return { collection: collectionInstance, client };
+  } catch (error: unknown) {
+    console.error("(vectorDb utils) Error in getVectorDbCollection:", error);
+
+    // Narrow the type before using:
+    if (error instanceof Error) {
+      collectionInstance = null;
+      throw new Error(
+        `Failed to access vector database collection: ${error.message}`
+      );
+    }
+
+    // Fallback for non-Error throwables:
+    throw new Error("Failed to access vector database collection: Unknown error");
+  }
+}
+
+
+// --- Helper Function to Generate Single Embedding ---
+async function generateEmbedding(text: string): Promise<number[]> {
+  if (!GEMINI_API_KEY) throw new Error("Missing GEMINI_API_KEY env var");
+  try {
+    // console.log(`Requesting embedding for text length: ${text.length}`); // Debug
+    const response = await fetch(GEMINI_EMBEDDING_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: { parts: [{ text }] } })
+    });
+    if (!response.ok) {
+        const errorBody = await response.text();
+        console.error("Gemini Embedding API Error:", response.status, response.statusText, errorBody);
+        throw new Error(`Gemini API error (${response.status}): ${response.statusText}. Body: ${errorBody.substring(0, 200)}`);
+    }
+    // Use interface for data
+    interface GeminiEmbeddingResponse {
+            embedding?: { values: number[] };
+        }
+        const data = await response.json() as GeminiEmbeddingResponse;
+        return data.embedding?.values || [];
+      } catch (error: unknown) { // CORRECT: Explicitly type error as unknown
+        console.error("Error generating single embedding:", error);
+         // CORRECT: Add type check before accessing properties
+        const message = error instanceof Error ? error.message : 'Unknown embedding generation error';
+        throw new Error(`Failed to generate embedding: ${message}`);
+      }
+    }
+
+// --- Helper Function to Generate Batch Embeddings ---
+async function generateEmbeddingsBatch(texts: string[], batchSize: number = 100): Promise<number[][]> {
+    if (!GEMINI_API_KEY) throw new Error("Missing GEMINI_API_KEY env var");
+    if (!texts || texts.length === 0) return [];
+
+    const allEmbeddings: number[][] = [];
+    console.log(`Starting batch embedding for ${texts.length} texts with batch size ${batchSize}...`);
+
+    for (let i = 0; i < texts.length; i += batchSize) {
+        const batchTexts = texts.slice(i, i + batchSize);
+        console.log(`Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(texts.length / batchSize)} (texts ${i + 1} to ${i + batchTexts.length})`);
+
+        const requests = batchTexts.map(text => ({ content: { parts: [{ text }] } }));
+
+        try {
+            const response = await fetch(GEMINI_BATCH_EMBEDDING_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ requests })
             });
-            console.log(`(vectorDb utils) Accessed Chroma collection: ${COLLECTION_NAME}`);
+
+            if (!response.ok) {
+                const errorBody = await response.text();
+                console.error("Gemini Batch Embedding API Error:", response.status, response.statusText, errorBody);
+                throw new Error(`Gemini Batch API error (${response.status}): ${response.statusText}. Body: ${errorBody.substring(0, 200)}`);
+            }
+
+            // Define an interface for the expected structure within the 'embeddings' array
+            interface EmbeddingItem {
+                values?: number[];
+            }
+            const data = await response.json();
+            // Use the interface in the map callback
+            const batchEmbeddings = data.embeddings?.map((emb: EmbeddingItem) => emb?.values || []) || [];
+            console.log(`  Received ${batchEmbeddings.length} embeddings for batch.`);
+            allEmbeddings.push(...batchEmbeddings);
+
+            // Optional: Add a small delay between batches if hitting rate limits
+            // await new Promise(resolve => setTimeout(resolve, 200));
+
+        } catch (error: unknown) { // Use 'unknown' for error type
+            console.error(`Error processing batch starting at index ${i}:`, error);
+             // Type check before accessing properties
+            const message = error instanceof Error ? error.message : 'Unknown batch embedding generation error';
+            // Decide whether to throw or continue with partial results
+            // For simplicity here, we'll throw. You might want to log and continue.
+            throw new Error(`Failed to generate batch embeddings: ${message}`);
         }
-        return { collection: collectionInstance, client };
-    } catch (error: any) {
-         console.error("(vectorDb utils) Error in getVectorDbCollection:", error);
-         collectionInstance = null; // Reset potentially failed instance
-         throw new Error(`Failed to access vector database collection: ${error.message}`);
     }
+    console.log(`Finished batch embedding. Total embeddings generated: ${allEmbeddings.length}`);
+    return allEmbeddings;
 }
 
-/**
- * Generates an embedding for the given text using the Google Generative Language API.
- */
-export async function generateEmbedding(text: string): Promise<number[]> {
-    if (!GEMINI_API_KEY) {
-        throw new Error("Cannot generate embedding: Missing GEMINI_API_KEY.");
-    }
-    if (!text || typeof text !== 'string' || !text.trim()) {
-         console.warn("(vectorDb utils) Attempted to embed empty or invalid text.");
-         // Return a zero vector or handle appropriately? Throwing error is safer.
-         throw new Error("Cannot generate embedding for empty text.");
-    }
-
-    // Construct the correct API endpoint URL
-    // Note: The model name might need adjustment (e.g., removing 'models/' if the API adds it)
-    // We'll assume the full name is needed. Using v1beta as per other calls.
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/${EMBEDDING_MODEL_NAME}:embedContent?key=${GEMINI_API_KEY}`;
-
-    // Shorter console log for potentially long text
-    const logText = text.length > 100 ? text.substring(0, 100) + "..." : text;
-    console.log(`(vectorDb utils) Generating embedding via API for text: "${logText}" using ${EMBEDDING_MODEL_NAME}`);
-    console.time("(vectorDb utils) generateEmbeddingApiCall");
-
-    try {
-        const response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                // Structure might vary slightly depending on exact model/API (embedContent vs embedText)
-                // Assuming embedContent structure similar to generateContent
-                 content: { parts: [{ text: text }] },
-                 // Some embedding models might have task_type parameter
-                 // task_type: "RETRIEVAL_DOCUMENT" // or "RETRIEVAL_QUERY", "SEMANTIC_SIMILARITY" etc. - Check model docs
-            }),
-        });
-
-        console.timeEnd("(vectorDb utils) generateEmbeddingApiCall");
-        const responseData = await response.json();
-
-        if (!response.ok) {
-            console.error(`(vectorDb utils) Embedding API Error (${response.status}):`, responseData);
-            throw new Error(`Embedding API request failed with status ${response.status}: ${responseData.error?.message || 'Unknown error'}`);
-        }
-
-        const embedding = responseData?.embedding?.values;
-        if (!embedding || !Array.isArray(embedding)) {
-            console.error("(vectorDb utils) Invalid embedding structure in API response:", responseData);
-            throw new Error("Invalid embedding structure received from API.");
-        }
-
-        return embedding;
-
-    } catch (error: any) {
-         console.error("(vectorDb utils) Error calling Embedding API:", error);
-         // Rethrow with a more specific message if possible
-         throw new Error(`Failed to generate text embedding via API: ${error.message}`);
-    }
-}
-
-/**
- * Generates embeddings for multiple texts using a single batch API call.
- * NOTE: Adjust the API endpoint and request body structure based on
- * the specific Google API documentation for batch embedding.
- */
-export async function generateEmbeddingsBatch(texts: string[]): Promise<(number[] | null)[]> {
-    if (!GEMINI_API_KEY) {
-        throw new Error("Cannot generate embeddings: Missing GEMINI_API_KEY.");
-    }
-    if (!texts || !Array.isArray(texts) || texts.length === 0) {
-        return [];
-    }
-
-    // Filter out empty texts to avoid API errors
-    const validTexts = texts.map((text, index) => ({ text, originalIndex: index }))
-                            .filter(item => item.text && typeof item.text === 'string' && item.text.trim());
-
-    if (validTexts.length === 0) {
-        return texts.map(() => null); // Return nulls for all original indices if no valid text
-    }
-
-    // *** IMPORTANT: Check Google API Docs for the correct batch endpoint and body ***
-    // This is a placeholder structure. The actual API might be different
-    // (e.g., using batchEmbedContents, different body structure).
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/${EMBEDDING_MODEL_NAME}:batchEmbedContents?key=${GEMINI_API_KEY}`; // Hypothetical batch endpoint
-
-    const requests = validTexts.map(item => ({
-        content: { parts: [{ text: item.text }] },
-        // task_type might be needed here too
-    }));
-
-    console.log(`(vectorDb utils) Generating ${validTexts.length} embeddings via Batch API using ${EMBEDDING_MODEL_NAME}`);
-    console.time("(vectorDb utils) generateEmbeddingsBatchApiCall");
-
-    try {
-        const response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            // *** Body structure depends heavily on the actual batch API ***
-            body: JSON.stringify({ requests }), // Assuming requests is an array
-        });
-
-        console.timeEnd("(vectorDb utils) generateEmbeddingsBatchApiCall");
-        const responseData = await response.json();
-
-        if (!response.ok) {
-            console.error(`(vectorDb utils) Batch Embedding API Error (${response.status}):`, responseData);
-            throw new Error(`Batch Embedding API request failed with status ${response.status}: ${responseData.error?.message || 'Unknown error'}`);
-        }
-
-        // *** Response structure depends on the API. Match results to original indices. ***
-        // Assuming responseData.embeddings is an array corresponding to the requests array
-        const resultsMap = new Map<number, number[]>();
-        if (responseData.embeddings && Array.isArray(responseData.embeddings)) {
-             responseData.embeddings.forEach((embeddingData: any, i: number) => {
-                 const embedding = embeddingData?.values; // Adjust based on actual response
-                 if (embedding && Array.isArray(embedding)) {
-                     const originalIndex = validTexts[i].originalIndex;
-                     resultsMap.set(originalIndex, embedding);
-                 } else {
-                      console.warn(`(vectorDb utils) Invalid embedding structure for item ${i} in batch response.`);
-                 }
-             });
-        } else {
-             console.error("(vectorDb utils) Invalid batch embedding response structure:", responseData);
-             throw new Error("Invalid batch embedding response structure received from API.");
-        }
-
-
-         // Create the final result array, preserving original order and inserting nulls for failures/empties
-         return texts.map((_, index) => resultsMap.get(index) || null);
-
-    } catch (error: any) {
-        console.error("(vectorDb utils) Error calling Batch Embedding API:", error);
-        throw new Error(`Failed to generate text embeddings via Batch API: ${error.message}`);
-    }
-} 
+export { getVectorDbCollection, generateEmbedding, generateEmbeddingsBatch }; // Export helpers 

@@ -1,8 +1,6 @@
 // src/app/api/job-analysis/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import puppeteer, { Browser, Page } from 'puppeteer';
-import path from 'path'; // Needed for resolving DB path
-import { getVectorDbCollection, generateEmbeddingsBatch } from '@/utils/vectorDb';
 
 // Gemini API Details
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -17,10 +15,21 @@ if (!GEMINI_API_KEY) {
 // --- Helper: Add delay ---
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// --- Define Interfaces (Optional but Recommended) ---
+interface ScrapedJob {
+    title: string | null;
+    company_name: string | null;
+    location: string | null;
+    url: string | null;
+    description: string | null; // Allow null initially
+}
+
+interface StatItem { name: string; count: number; } // Reuse or define globally
+
 // --- Web Scraping Function for JobsDB HK (Ensure it gets full descriptions) ---
-async function scrapeJobsDB_HK(query: string): Promise<any[]> {
+async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
     let browser: Browser | null = null;
-    let allJobsData: any[] = [];
+    const allJobsData: ScrapedJob[] = [];
     const jobsDbBaseUrl = 'https://hk.jobsdb.com';
     const jobsDbSearchUrl = 'https://hk.jobsdb.com/hk/en/Search/FindJobs';
     const maxPagesToScrape = 3; // Limit pagination pages
@@ -60,7 +69,7 @@ async function scrapeJobsDB_HK(query: string): Promise<any[]> {
         await page.waitForSelector(SEARCH_BUTTON_SELECTOR, { timeout: 10000, visible: true });
         console.log(`Clicking search button.`);
         await Promise.all([
-             page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }).catch(e => console.warn("Navigation after search click didn't fully idle, proceeding...")),
+             page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }).catch(() => console.warn("Navigation after search click didn't fully idle, proceeding...")),
              page.click(SEARCH_BUTTON_SELECTOR)
          ]);
          console.log(`Current URL after search: ${page.url()}`);
@@ -68,20 +77,18 @@ async function scrapeJobsDB_HK(query: string): Promise<any[]> {
          try {
              await page.waitForSelector(JOB_CARD_SELECTOR, { timeout: 40000, visible: true });
         console.log("Initial job cards selector found.");
-         } catch (e) {
+         } catch {
              console.error(`Job cards selector (${JOB_CARD_SELECTOR}) not found after search. Scraping might fail. Page content snippet:`, await page.content().then(c => c.substring(0, 500)));
-             // Optionally take a screenshot for debugging
-             // await page.screenshot({ path: 'debug_screenshot_no_cards.png' });
-             throw new Error("Job cards not found after search."); // Stop if essential element missing
+             throw new Error("Job cards not found after search.");
          }
          await delay(2000); // Wait for potential lazy loading
 
         // Part 2: Scrape Pages Loop (Same as before)
         while (currentPage <= maxPagesToScrape) {
             console.log(`--- Scraping Page ${currentPage} ---`);
-            const pageJobs = await page.$$eval(JOB_CARD_SELECTOR, (cards, selectors, pageNum) => {
+            const pageJobs: ScrapedJob[] = await page.$$eval(JOB_CARD_SELECTOR, (cards, selectors, pageNum) => {
                  // ... (inner logic for extracting title, company, location, url remains the same) ...
-                const jobs: any[] = [];
+                const jobs: ScrapedJob[] = [];
                  cards.forEach((card, index) => {
                     const titleEl = card.querySelector(selectors.titleSel);
                     const companyEl = card.querySelector(selectors.companySel);
@@ -116,13 +123,15 @@ async function scrapeJobsDB_HK(query: string): Promise<any[]> {
                 try {
                     await Promise.all([
                         nextButton.click(),
-                         page.waitForSelector(JOB_CARD_SELECTOR, { timeout: 45000, visible: true }).catch(e=> console.warn("Wait for selector after 'Next' click failed or timed out."))
+                         page.waitForSelector(JOB_CARD_SELECTOR, { timeout: 45000, visible: true }).catch(() => console.warn("Wait for selector after 'Next' click failed or timed out."))
                     ]);
                      await delay(3000 + Math.random() * 1000); // Increased delay after page load
                      console.log(`Navigated to page ${currentPage + 1}`);
                     currentPage++;
-                } catch(navError: any) {
-                     console.error(`Error clicking 'Next' or waiting for page ${currentPage + 1}: ${navError.message}`);
+                } catch(navError: unknown) {
+                     // Type check before accessing properties
+                     const message = navError instanceof Error ? navError.message : String(navError);
+                     console.error(`Error clicking 'Next' or waiting for page ${currentPage + 1}: ${message}`);
                      break;
                 }
             } else {
@@ -151,7 +160,7 @@ async function scrapeJobsDB_HK(query: string): Promise<any[]> {
                 let detailPage: Page | null = null;
                 const jobIndexInTotal = i + index; // Index relative to the totalJobsToDescribe
                 try {
-                    console.log(` -> Starting detail ${jobIndexInTotal + 1}/${totalJobsToDescribe}: ${job.title.substring(0, 30)}...`);
+                    console.log(` -> Starting detail ${jobIndexInTotal + 1}/${totalJobsToDescribe}: ${job.title?.substring(0, 30) || ''}...`);
                     detailPage = await browser.newPage(); // Creates a new page context
                     await detailPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
                  await detailPage.goto(job.url, { waitUntil: 'networkidle2', timeout: 60000 });
@@ -166,8 +175,10 @@ async function scrapeJobsDB_HK(query: string): Promise<any[]> {
                         success: true
                     };
 
-                } catch (detailError: any) {
-                    console.error(` -> Failed desc scrape for ${job.title}: ${detailError.message}`);
+                } catch (detailError: unknown) {
+                    // Type check error before accessing properties
+                    const message = detailError instanceof Error ? detailError.message : String(detailError);
+                    console.error(` -> Failed desc scrape for ${job.title}: ${message}`);
                     // Return failure status
                     return {
                         url: job.url,
@@ -187,14 +198,14 @@ async function scrapeJobsDB_HK(query: string): Promise<any[]> {
             // Process results and update the main allJobsData array
             results.forEach(result => {
                 if (result.status === 'fulfilled' && result.value) {
-                    const { url, description, success } = result.value;
+                    const { url, description, success } = result.value as { url: string | null, description: string, success: boolean };
                     const originalJobIndex = allJobsData.findIndex(j => j.url === url);
                     if (originalJobIndex !== -1) {
                         allJobsData[originalJobIndex].description = description;
                         if (success) {
-                           console.log(` -> Success batch update for ${allJobsData[originalJobIndex].title.substring(0, 30)}. Desc length: ${description.length}`);
+                           console.log(` -> Success batch update for ${allJobsData[originalJobIndex].title?.substring(0, 30) || ''} Desc length: ${description.length}`);
                         } else {
-                           console.log(` -> Failed batch update for ${allJobsData[originalJobIndex].title.substring(0, 30)}.`);
+                           console.log(` -> Failed batch update for ${allJobsData[originalJobIndex].title?.substring(0, 30) || ''}`);
                         }
                     } else {
                         console.warn(` -> Batch: Could not find original job entry for URL: ${url}`);
@@ -213,8 +224,10 @@ async function scrapeJobsDB_HK(query: string): Promise<any[]> {
         }
         // --- End Parallel Scraping ---
 
-    } catch (error: any) {
-        console.error("Scraping function error:", error);
+    } catch (error: unknown) {
+        // Type check error before accessing properties
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("Scraping function error:", message);
         // Don't reset allJobsData here, return what was collected
     } finally {
         if (browser) {
@@ -236,9 +249,9 @@ export async function POST(request: NextRequest) {
     // Construct URL using the large-context Flash model
     const geminiApiUrlWithKey = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_NAME}:generateContent?key=${currentApiKey}`;
 
-    let scrapedJobResults: any[] = [];
-    let topCompanies: { name: string, count: number }[] = [];
-    let topLocations: { name: string, count: number }[] = [];
+    let scrapedJobResults: ScrapedJob[] = [];
+    let topCompanies: StatItem[] = [];
+    let topLocations: StatItem[] = [];
 
     try {
         // Destructure potential resumeText from the body
@@ -267,8 +280,8 @@ export async function POST(request: NextRequest) {
                 if (job.company_name) { companyCounts[job.company_name] = (companyCounts[job.company_name] || 0) + 1; }
                 if (job.location) { const cleanLocation = job.location.split(',')[0].trim(); if(cleanLocation) locationCounts[cleanLocation] = (locationCounts[cleanLocation] || 0) + 1; }
             });
-            topCompanies = Object.entries(companyCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 10);
-            topLocations = Object.entries(locationCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 10);
+            topCompanies = Object.entries(companyCounts).map(([name, count]): StatItem => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 10);
+            topLocations = Object.entries(locationCounts).map(([name, count]): StatItem => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 10);
             console.log("Top Companies:", topCompanies.map(c=>`${c.name}(${c.count})`));
             console.log("Top Locations:", topLocations.map(l=>`${l.name}(${l.count})`));
         }
@@ -279,11 +292,11 @@ export async function POST(request: NextRequest) {
         if (jobsWithDescriptions.length > 0) {
             allScrapedJobContext = jobsWithDescriptions.map((job, index) => {
                 return `Job ${index + 1}:\n` + // Simplified identifier
-                       `Title: ${job.title}\n` +
+                       `Title: ${job.title || 'N/A'}\n` +
                        `Company: ${job.company_name || 'N/A'}\n` + // Include company
                        `Location: ${job.location || 'N/A'}\n` + // Include location
-                       `URL: ${job.url}\n` +
-                       `Description: ${job.description}`;
+                       `URL: ${job.url || '#'}\n` +
+                       `Description: ${job.description || 'No description available.'}`;
             }).join('\n\n---\n\n');
         }
         console.log(`Prepared context with ${jobsWithDescriptions.length} full job descriptions.`);
@@ -461,9 +474,11 @@ export async function POST(request: NextRequest) {
                   console.warn("Received non-JSON success response from Gemini:", rawResponseText.substring(0, 200));
                   analysisText = rawResponseText; // Use raw text if parse fails but status was OK?
               }
-         } catch (e: any) {
+         } catch (e: unknown) {
               console.error("Error processing Gemini response:", e);
-              return NextResponse.json({ error: `Failed to process AI response: ${e.message}` }, { status: 500 });
+              // Type check error before accessing properties
+              const message = e instanceof Error ? e.message : 'Failed to process AI response';
+              return NextResponse.json({ error: message }, { status: 500 });
          }
 
 
@@ -624,10 +639,11 @@ export async function POST(request: NextRequest) {
             analysisDisclaimer: `Note: Stats from ${scrapedJobResults.length} scraped jobs. AI analysis prioritizes jobs based on fit and potential using ${jobsWithDescriptions.length} full descriptions sent directly to the model. Verify details.`,
         });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("API Route General Error:", error);
-         // Remove specific vector DB error check
-         const errorMessage = `An internal server error occurred: ${error.message || 'Unknown error'}`;
+        // Type check error before accessing properties
+        const message = error instanceof Error ? error.message : String(error);
+        const errorMessage = `An internal server error occurred: ${message}`;
         return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }

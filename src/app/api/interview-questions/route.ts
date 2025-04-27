@@ -9,6 +9,13 @@ if (!GEMINI_API_KEY) {
   console.error("Startup Warning: Missing GEMINI_API_KEY environment variable for interview-questions route.");
 }
 
+// Define a basic interface for the expected response
+interface GeminiResponse {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+    error?: { message?: string };
+    promptFeedback?: { blockReason?: string };
+}
+
 export async function POST(request: NextRequest) {
     const currentApiKey = process.env.GEMINI_API_KEY;
     if (!currentApiKey) {
@@ -52,61 +59,42 @@ export async function POST(request: NextRequest) {
         console.log(`Gemini Interview Questions API Response Status: ${geminiApiResponse.status} ${geminiApiResponse.statusText}`);
         const rawResponseText = await geminiApiResponse.text();
 
-        let geminiResponseData: any;
+        let geminiResponseData: GeminiResponse = {}; // Initialize with the interface type
         try {
-            if (!geminiApiResponse.ok) {
-                 console.error("Gemini API Error Raw Response:", rawResponseText);
-                 // Try to parse error from JSON if possible
-                 let errorMsg = `Gemini API error (${geminiApiResponse.status}): ${geminiApiResponse.statusText}.`;
-                 try {
-                    const errorJson = JSON.parse(rawResponseText);
-                    errorMsg = errorJson.error?.message || errorMsg;
-                 } catch (_) {}
-                 throw new Error(errorMsg);
-            }
             if (rawResponseText && rawResponseText.trim().startsWith('{')) {
-                 geminiResponseData = JSON.parse(rawResponseText);
+                geminiResponseData = JSON.parse(rawResponseText) as GeminiResponse; // Assert type
             } else {
-                throw new Error("Received non-JSON response from Gemini API.");
+                throw new Error(`Received non-JSON response...`);
             }
-        } catch (parseError: any) {
-            console.error("Interview Questions JSON Parsing/API Error:", parseError);
-            return NextResponse.json({ error: `Failed to parse response from AI model: ${parseError.message}` }, { status: 500 });
+        } catch (parseError: unknown) {
+            console.error("Interview Questions JSON Parsing Error:", parseError);
+            return NextResponse.json({ error: 'Failed to parse interview questions response from AI model.', details: rawResponseText.substring(0, 500) }, { status: 500 });
         }
 
-        // Check for safety blocks or other API-level errors reported in JSON
-        const blockReason = geminiResponseData.promptFeedback?.blockReason;
-        if (blockReason) {
-            console.error(`Gemini request blocked by safety settings: ${blockReason}`);
-            return NextResponse.json({ error: `Request blocked by safety settings: ${blockReason}` }, { status: 400 });
-        }
-        const finishReason = geminiResponseData.candidates?.[0]?.finishReason;
-         if (finishReason && !['STOP', 'MAX_TOKENS'].includes(finishReason)) {
-             console.error(`Gemini generation finished unexpectedly: ${finishReason}`);
-             return NextResponse.json({ error: `AI generation failed: ${finishReason}` }, { status: 500 });
+        if (!geminiApiResponse.ok) {
+            console.error("Interview Questions API Error Response (JSON):", geminiResponseData);
+            const errorDetails = geminiResponseData.error?.message || `HTTP error! status: ${geminiApiResponse.status}`;
+            return NextResponse.json({ error: `Failed to get interview questions: ${errorDetails}` }, { status: geminiApiResponse.status });
         }
 
-        let questionsText = '';
+        let analysisText = '';
         try {
-            questionsText = geminiResponseData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        } catch (e: any) {
-             console.error("Error extracting questions text from Gemini response:", e);
-             return NextResponse.json({ error: 'Could not extract questions from AI response structure.' }, { status: 500 });
-         }
+            analysisText = geminiResponseData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        } catch { /* Catch block requires no variable if error object isn't used */ }
 
-
-        if (!questionsText) {
-             console.error("Gemini interview questions response text empty after processing.");
-             return NextResponse.json({ error: 'Received empty response for interview questions from AI.' }, { status: 500 });
+        if (!analysisText) {
+            console.error("Gemini interview questions response text empty after processing.");
+            return NextResponse.json({ error: 'Received empty response for interview questions from AI.' }, { status: 500 });
         }
 
         // Clean up potential redundant heading
-        questionsText = questionsText.replace(/^\s*INTERVIEW QUESTIONS:?\s*/i, '').trim();
+        analysisText = analysisText.replace(/^\s*INTERVIEW QUESTIONS:?\s*/i, '').trim();
 
-        return NextResponse.json({ interviewQuestions: questionsText });
+        return NextResponse.json({ interviewQuestions: analysisText });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("API Route Interview Questions Error:", error);
-        return NextResponse.json({ error: error.message || 'An internal server error occurred during interview question generation.' }, { status: 500 });
+        const message = error instanceof Error ? error.message : 'An internal server error occurred during question generation.';
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 } 

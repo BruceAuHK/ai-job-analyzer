@@ -9,6 +9,13 @@ if (!GEMINI_API_KEY) {
   console.error("Startup Warning: Missing GEMINI_API_KEY environment variable for resume-analysis route.");
 }
 
+// Define a basic interface for the expected response
+interface GeminiResponse {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+    error?: { message?: string };
+    promptFeedback?: { blockReason?: string };
+}
+
 export async function POST(request: NextRequest) {
     const currentApiKey = process.env.GEMINI_API_KEY;
      if (!currentApiKey) {
@@ -58,14 +65,12 @@ export async function POST(request: NextRequest) {
         const rawResponseText = await geminiApiResponse.text();
         // console.log("Gemini Resume Analysis API Raw Response Text:", rawResponseText);
 
-        let geminiResponseData: any;
+        let geminiResponseData: GeminiResponse = {}; // Initialize with the interface type
         try {
              if (rawResponseText && rawResponseText.trim().startsWith('{')) {
-                 geminiResponseData = JSON.parse(rawResponseText);
-             } else {
-                 throw new Error(`Received non-JSON response or empty response from Gemini API. Status: ${geminiApiResponse.status}. Body starts with: ${rawResponseText.substring(0,100)}`);
-             }
-        } catch (parseError: any) {
+                 geminiResponseData = JSON.parse(rawResponseText) as GeminiResponse; // Assert type
+             } else { throw new Error(`Received non-JSON response...`); }
+        } catch (parseError: unknown) {
              console.error("Resume Analysis JSON Parsing Error:", parseError);
              return NextResponse.json({ error: 'Failed to parse resume analysis response from AI model.', details: rawResponseText.substring(0, 500) }, { status: 500 });
         }
@@ -78,9 +83,8 @@ export async function POST(request: NextRequest) {
 
         let analysisText = '';
          try {
-             analysisText = geminiResponseData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-             // Add safety checks if needed
-         } catch (e: any) { /* Handle extraction error */ }
+             analysisText = geminiResponseData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+         } catch { /* Catch block requires no variable if error object isn't used */ }
 
         if (!analysisText) {
              console.error("Gemini resume analysis response text empty after parsing structure.");
@@ -89,8 +93,9 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ resumeAnalysis: analysisText });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("API Route Resume Analysis Error:", error);
-        return NextResponse.json({ error: 'An internal server error occurred during resume analysis.' }, { status: 500 });
+        const message = error instanceof Error ? error.message : 'An internal server error occurred during resume analysis.';
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }

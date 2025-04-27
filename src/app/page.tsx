@@ -11,6 +11,7 @@ import {
     Title,
     Tooltip,
     Legend,
+    TooltipItem
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 // --- End Chart.js Imports ---
@@ -142,7 +143,7 @@ export default function Home() {
           },
           tooltip: {
               callbacks: {
-                  label: function(context: any) {
+                  label: function(context: TooltipItem<"bar">) {
                       let label = context.dataset.label || '';
                       if (label) {
                           label += ': ';
@@ -193,7 +194,6 @@ export default function Home() {
       // Regex to find skills with percentages (like Skill Name (~XX%))
       const skillRegex = /^(.*?)\s*(?:\(\s*~?(\d+)%\s*\))?$/; // Made percentage optional capture
 
-      let lastIndex = 0;
       let categoryMatch;
 
       // Find category blocks
@@ -251,7 +251,7 @@ export default function Home() {
 
   // --- Effect to cycle through loading messages ---
   useEffect(() => {
-    let timers: NodeJS.Timeout[] = [];
+    const timers: NodeJS.Timeout[] = [];
     if (loading) {
         // Reset messages when loading starts
         setLoadingStepMessage("Initiating job search...");
@@ -311,15 +311,22 @@ export default function Home() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody), // Send role query and potentially resume
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error((data as any).error || `HTTP error! Status: ${response.status}`);
-      setAnalysisResult(data as AnalysisResult);
+      // Use unknown and cast or type guard data
+      const data: unknown = await response.json();
+      if (!response.ok) throw new Error((data as { error?: string })?.error || `HTTP error! Status: ${response.status}`);
+      setAnalysisResult(data as AnalysisResult); // Cast to the expected interface
 
       // Optionally clear resume analysis if the main analysis is re-run
       // setResumeAnalysisResult(null);
       // setErrorResume(null);
 
-    } catch (err: any) { console.error("Market analysis fetch error:", err); setError(err.message || 'Error during market analysis.'); setAnalysisResult(null); }
+    } catch (err: unknown) {
+        console.error("Market analysis fetch error:", err);
+        // Type check before accessing properties
+        const message = err instanceof Error ? err.message : 'Error during market analysis.';
+        setError(message);
+        setAnalysisResult(null);
+    }
     finally { setLoading(false); }
   }, [userRoleQuery, resumeText]); // Add resumeText as dependency
 
@@ -332,7 +339,12 @@ export default function Home() {
           const response = await fetch('/api/resume-analysis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resumeText: resumeText.trim(), commonStack: analysisResult.commonStack }) });
           const data = await response.json(); if (!response.ok) throw new Error(data.error);
           setResumeAnalysisResult(data.resumeAnalysis);
-      } catch (err: any) { setErrorResume(err.message); setResumeAnalysisResult(null); }
+      } catch (err: unknown) {
+          // Type check before accessing properties
+          const message = err instanceof Error ? err.message : 'Failed to analyze resume.';
+          setErrorResume(message);
+          setResumeAnalysisResult(null);
+      }
       finally { setLoadingResume(false); }
   }, [resumeText, analysisResult]);
 
@@ -344,7 +356,12 @@ export default function Home() {
         const response = await fetch('/api/skill-gap', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commonStack: analysisResult.commonStack }) });
         const data = await response.json(); if (!response.ok) throw new Error(data.error);
         setSkillGapResult(data.skillGapAnalysis);
-    } catch (err: any) { setErrorSkillGap(err.message); setSkillGapResult(null); }
+    } catch (err: unknown) {
+        // Type check before accessing properties
+        const message = err instanceof Error ? err.message : 'Failed to analyze skill gap.';
+        setErrorSkillGap(message);
+        setSkillGapResult(null);
+    }
     finally { setLoadingSkillGap(false); }
 }, [analysisResult]);
 
@@ -357,7 +374,12 @@ export default function Home() {
           const response = await fetch('/api/search-strategy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRoleQuery: userRoleQuery, commonStack: analysisResult.commonStack, experienceSummary: analysisResult.experienceSummary || 'N/A', jobPrioritization: analysisResult.jobPrioritization || 'N/A', topCompanies: analysisResult.topCompanies || [], topLocations: analysisResult.topLocations || [] }) });
           const data = await response.json(); if (!response.ok) throw new Error(data.error);
           setStrategyTips(data.strategyTips);
-      } catch (err: any) { setErrorStrategy(err.message); setStrategyTips(null); }
+      } catch (err: unknown) {
+          // Type check before accessing properties
+          const message = err instanceof Error ? err.message : 'Failed to get search strategy.';
+          setErrorStrategy(message);
+          setStrategyTips(null);
+      }
       finally { setLoadingStrategy(false); }
   }, [userRoleQuery, analysisResult]);
 
@@ -376,9 +398,11 @@ export default function Home() {
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || `HTTP error! Status: ${response.status}`);
           setFilteredJobIds(data.matchingJobIds || []); // Store the returned IDs
-      } catch (err: any) {
+      } catch (err: unknown) {
           console.error("Filter jobs fetch error:", err);
-          setErrorFilter(err.message || 'Error applying filter.');
+          // Type check before accessing properties
+          const message = err instanceof Error ? err.message : 'Error applying filter.';
+          setErrorFilter(message);
           setFilteredJobIds(null);
       } finally {
           setLoadingFilter(false);
@@ -416,9 +440,11 @@ export default function Home() {
           if (!response.ok) throw new Error(data.error || `HTTP error! Status: ${response.status}`);
           setSimilarJobsResult(data.similarJobs || []);
           setSimilarJobsSourceTitle(sourceJob.title); // Store title for context
-      } catch (err: any) {
+      } catch (err: unknown) {
           console.error("Similar jobs fetch error:", err);
-          setErrorSimilar(err.message || 'Error finding similar jobs.');
+          // Type check before accessing properties
+          const message = err instanceof Error ? err.message : 'Error finding similar jobs.';
+          setErrorSimilar(message);
           setSimilarJobsResult(null);
       } finally {
           setLoadingSimilar(false);
@@ -447,9 +473,11 @@ export default function Home() {
             throw new Error(data.error || `HTTP error! Status: ${response.status}`);
         }
         setInterviewQuestions(prev => ({ ...prev, [jobUrl]: data.interviewQuestions }));
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error("Generate questions fetch error:", err);
-        setErrorQuestions(prev => ({ ...prev, [jobUrl]: err.message || 'Error generating questions.' }));
+        // Type check before accessing properties
+        const message = err instanceof Error ? err.message : 'Error generating questions.';
+        setErrorQuestions(prev => ({ ...prev, [jobUrl]: message }));
         setInterviewQuestions(prev => ({ ...prev, [jobUrl]: null })); // Clear on error
     } finally {
         setLoadingQuestions(prev => ({ ...prev, [jobUrl]: false }));
@@ -564,7 +592,7 @@ export default function Home() {
         link.click();
         document.body.removeChild(link); // Clean up
         URL.revokeObjectURL(url); // Free up memory
-    } catch (error) {
+    } catch (error: unknown) {
         console.error("Error exporting analysis:", error);
         // Optionally show an error to the user
         setError("Could not export analysis data.");
@@ -612,7 +640,7 @@ export default function Home() {
                    className={`${styles.textArea} ${styles.marginBottomMedium}`}
                    disabled={loading}
                />
-               <p className={styles.infoText}>Providing your resume will tailor the 'Job Prioritization' section to jobs matching your profile.</p>
+               <p className={styles.infoText}>Providing your resume will tailor the &apos;Job Prioritization&apos; section to jobs matching your profile.</p>
            </div>
            {/* Move Button Below Textarea */}
            <div style={{marginTop: '1.5rem', textAlign: 'right'}}> {/* Increased top margin */}
@@ -822,20 +850,20 @@ export default function Home() {
 
           {/* --- Top Job Recommendations Section --- */}
                  <section className={`${styles.resultCard} ${styles.fullWidthCard} ${styles.recommendationsCard}`}>
-              <h2 className={styles.sectionTitle}>
-                Top Job Recommendations
-                <span className={styles.titleSubText}>
-                    {(analysisResult.jobPrioritization || '').includes("based on your resume")
-                        ? " (Top matches for your resume)"
-                        : " (Top matches for your query)"}
-                </span>
-              </h2>
-              <div className={`${styles.analysisContent} ${styles.jobRecommendationsContent}`}>
-                  {(analysisResult.jobPrioritization && !analysisResult.jobPrioritization.toLowerCase().includes('could not parse'))
-                   ? <ReactMarkdown>{analysisResult.jobPrioritization}</ReactMarkdown>
-                   : <p className={styles.noResultsText}>Could not generate job recommendations.</p>
-                  }
-              </div>
+                   <h2 className={styles.sectionTitle}>
+                     Top Job Recommendations
+                     <span className={styles.titleSubText}>
+                         {(analysisResult.jobPrioritization || '').includes("based on your resume")
+                           ? " (Top matches for your resume)"
+                           : " (Top matches for your query)"}
+                     </span>
+                   </h2>
+                   <div className={`${styles.analysisContent} ${styles.jobRecommendationsContent}`}>
+                       {(analysisResult.jobPrioritization && !analysisResult.jobPrioritization.toLowerCase().includes('could not parse'))
+                        ? <ReactMarkdown>{analysisResult.jobPrioritization}</ReactMarkdown>
+                        : <p className={styles.noResultsText}>Could not generate job recommendations.</p>
+                       }
+                   </div>
                  </section>
 
 

@@ -37,11 +37,9 @@ export async function POST(request: NextRequest) {
         // Return the list of matching job IDs (URLs)
         return NextResponse.json({ matchingJobIds });
 
-    } catch (error: any) {
-        console.error("API Route Filter Jobs Error:", error);
-        const errorMessage = error.message.includes('vector database') || error.message.includes('embedding model')
-            ? `Filter service unavailable: ${error.message}`
-            : 'An internal server error occurred during filtering.';
-        return NextResponse.json({ error: errorMessage }, { status: 500 });
+    } catch (error: unknown) {
+        console.error("Error during job filtering:", error);
+        const message = error instanceof Error ? error.message : 'Failed to process job filtering request.';
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 } 

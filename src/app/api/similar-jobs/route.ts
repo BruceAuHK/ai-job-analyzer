@@ -5,10 +5,16 @@ const SIMILAR_RESULTS_LIMIT = 5; // How many similar jobs to return
 
 export async function POST(request: NextRequest) {
     try {
-        const { sourceJobUrl } = await request.json();
+        // Use a defined type for the request body
+        interface SimilarJobsRequestBody {
+            sourceJobUrl?: string;
+        }
+        // Assert the type after parsing
+        const requestBody = await request.json() as SimilarJobsRequestBody;
+        const sourceJobUrl = requestBody?.sourceJobUrl;
 
         if (typeof sourceJobUrl !== 'string' || !sourceJobUrl.trim()) {
-            return NextResponse.json({ error: 'Invalid source job URL provided.' }, { status: 400 });
+            return NextResponse.json({ error: 'Invalid input: Missing sourceJobUrl.' }, { status: 400 });
         }
 
         console.log(`Finding similar jobs for: ${sourceJobUrl}`);
@@ -26,9 +32,10 @@ export async function POST(request: NextRequest) {
             });
             console.timeEnd("chromaGetSourceEmbedding");
             sourceEmbedding = sourceJobData?.embeddings?.[0];
-        } catch (getError: any) {
-             console.warn(`Could not get source job data directly for ${sourceJobUrl}: ${getError.message}`);
-             sourceEmbedding = null; // Ensure it's null if direct get fails
+        } catch (error: unknown) { // <--- CHANGE THIS LINE
+            console.error("API Route Similar Jobs Error:", error);
+            const message = error instanceof Error ? error.message : 'An internal server error occurred.';
+            return NextResponse.json({ error: message }, { status: 500 });
         }
 
         if (!sourceEmbedding) {
@@ -92,11 +99,20 @@ export async function POST(request: NextRequest) {
         console.log(`Found ${similarJobs.length} similar jobs.`);
         return NextResponse.json({ similarJobs });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("API Route Similar Jobs Error:", error);
-        const errorMessage = error.message.includes('vector database') || error.message.includes('embedding')
-            ? `Similarity service unavailable: ${error.message}`
-            : `An internal server error occurred while finding similar jobs.`;
-        return NextResponse.json({ error: errorMessage }, { status: 500 });
+        const message = error instanceof Error ? error.message : 'An internal server error occurred.';
+        return NextResponse.json({ error: message }, { status: 500 });
     }
-} 
+}
+
+// Define or import JobListing interface if not already present
+// Remove unused interface definition if it's truly not used in this file
+// interface JobListing {
+//   title: string;
+//   url: string;
+//   snippet?: string;
+//   description: string;
+//   company_name?: string;
+//   location?: string;
+// } 

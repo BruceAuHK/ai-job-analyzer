@@ -1,6 +1,6 @@
 // src/app/api/suggest-project/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const API_KEY = process.env.GEMINI_API_KEY;
 
@@ -19,18 +19,18 @@ const model = genAI.getGenerativeModel({
 });
 
 // Optional: Configure safety settings (adjust thresholds as needed)
-const safetySettings = [
-  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-];
+// const safetySettings = [
+//   { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+//   { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+//   { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+//   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+// ];
 
 // Optional: Configure generation parameters
-const generationConfig = {
-  // temperature: 0.7, // Example: balances creativity and coherence
-  maxOutputTokens: 2048, // Limit response length
-};
+// const generationConfig = {
+//   // temperature: 0.7, // Example: balances creativity and coherence
+//   maxOutputTokens: 2048, // Limit response length
+// };
 
 export async function POST(request: NextRequest) {
   // Check for API Key on each request if it wasn't available at startup
@@ -81,8 +81,8 @@ export async function POST(request: NextRequest) {
     const result = await model.generateContent(
       prompt,
       // Pass safetySettings and generationConfig if defined
-      // safetySettings,
-      // generationConfig
+      // safetySettings, // Commented out
+      // generationConfig // Commented out
     );
 
     const response = result.response;
@@ -107,24 +107,27 @@ export async function POST(request: NextRequest) {
     // --- Return Success Response ---
     return NextResponse.json({ suggestion: suggestionText.trim() });
 
-  } catch (error: any) {
+  } catch (error: unknown) { // Use 'unknown'
     console.error("API Route Error:", error); // Log the full error server-side
 
     // Provide a generic error message to the client
     let errorMessage = 'An internal server error occurred.';
     let statusCode = 500;
 
+    // Type check error before accessing properties
+    const message = error instanceof Error ? error.message : String(error);
+
     // Check for specific error types if needed (e.g., API key auth)
-    if (error.message?.includes('API key not valid') || error.message?.includes('PERMISSION_DENIED')) {
+    if (message?.includes('API key not valid') || message?.includes('PERMISSION_DENIED')) {
         errorMessage = 'AI API authentication error. Please check the server configuration.';
         statusCode = 500; // Internal server error essentially
     } else if (error instanceof SyntaxError) { // JSON parsing error
        errorMessage = 'Invalid request format.';
        statusCode = 400;
-    } else if (error.message?.includes('fetch failed') || error.message?.includes('ENOTFOUND')) {
+    } else if (message?.includes('fetch failed') || message?.includes('ENOTFOUND')) {
          errorMessage = 'Network error communicating with the AI service.';
          statusCode = 503; // Service Unavailable
-    } else if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+    } else if (message?.includes('429') || message?.includes('rate limit')) {
          errorMessage = 'Rate limit exceeded. Please try again later.';
          statusCode = 429;
     }

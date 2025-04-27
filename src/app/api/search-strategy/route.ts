@@ -10,6 +10,13 @@ if (!GEMINI_API_KEY) {
   console.error("Startup Warning: Missing GEMINI_API_KEY for search-strategy route.");
 }
 
+// Define a basic interface for the expected response
+interface GeminiResponse {
+    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+    error?: { message?: string };
+    promptFeedback?: { blockReason?: string };
+}
+
 export async function POST(request: NextRequest) {
     const currentApiKey = process.env.GEMINI_API_KEY;
      if (!currentApiKey) {
@@ -47,10 +54,10 @@ export async function POST(request: NextRequest) {
             analysisContext += `Job Prioritization Suggestion:\n${jobPrioritization}\n\n`;
         }
         if (topCompanies && topCompanies.length > 0) {
-             analysisContext += `Top Hiring Companies Found:\n${topCompanies.map((c: any) => `- ${c.name} (${c.count} jobs)`).join('\n')}\n\n`;
+             analysisContext += `Top Hiring Companies Found:\n${topCompanies.map((c: { name: string, count: number }) => `- ${c.name} (${c.count} jobs)`).join('\n')}\n\n`;
         }
         if (topLocations && topLocations.length > 0) {
-             analysisContext += `Top Job Locations Found:\n${topLocations.map((l: any) => `- ${l.name} (${l.count} jobs)`).join('\n')}\n\n`;
+             analysisContext += `Top Job Locations Found:\n${topLocations.map((l: { name: string, count: number }) => `- ${l.name} (${l.count} jobs)`).join('\n')}\n\n`;
         }
 
 
@@ -89,12 +96,15 @@ export async function POST(request: NextRequest) {
         console.log(`Gemini Strategy API Response Status: ${geminiApiResponse.status} ${geminiApiResponse.statusText}`);
         const rawResponseText = await geminiApiResponse.text();
 
-        let geminiResponseData: any;
+        let geminiResponseData: GeminiResponse = {}; // Initialize with the interface type
         try {
              if (rawResponseText && rawResponseText.trim().startsWith('{')) {
-                 geminiResponseData = JSON.parse(rawResponseText);
+                 geminiResponseData = JSON.parse(rawResponseText) as GeminiResponse; // Assert type
              } else { throw new Error(`Received non-JSON response...`); }
-        } catch (parseError: any) { /* Handle parsing error */ return NextResponse.json({ error: 'Failed to parse strategy response from AI model.' }, { status: 500 });}
+        } catch (parseErr: unknown) {
+             console.error("Search Strategy JSON Parsing Error:", parseErr);
+             return NextResponse.json({ error: 'Failed to parse strategy response from AI model.' }, { status: 500 });
+        }
 
         // Check for safety blocks or API errors
         const blockReason = geminiResponseData.candidates?.[0]?.finishReason === 'SAFETY' ? geminiResponseData.promptFeedback?.blockReason || 'Unknown Safety Block' : null;
@@ -103,7 +113,9 @@ export async function POST(request: NextRequest) {
 
         // Extract text
         let strategyText = '';
-        try { strategyText = geminiResponseData?.candidates?.[0]?.content?.parts?.[0]?.text || ''; } catch (e) { /* Handle extraction error */ }
+        try {
+            strategyText = geminiResponseData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        } catch { /* Catch block requires no variable if error object isn't used */ }
 
         if (!strategyText) { console.error("Gemini strategy response text empty."); return NextResponse.json({ error: 'Received empty strategy advice.' }, { status: 500 }); }
 
@@ -112,8 +124,9 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ strategyTips: strategyText });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("API Route Search Strategy Error:", error);
-        return NextResponse.json({ error: 'An internal server error occurred during strategy generation.' }, { status: 500 });
+        const message = error instanceof Error ? error.message : 'An internal server error occurred during strategy generation.';
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }
