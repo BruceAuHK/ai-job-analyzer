@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getVectorDbCollection, generateEmbedding } from '@/utils/vectorDb';
+import { IncludeEnum } from 'chromadb';
 
 const FILTER_RESULTS_LIMIT = 50; // How many matching job IDs to return
 
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
         const results = await collection.query({
             queryEmbeddings: [queryEmbedding],
             nResults: FILTER_RESULTS_LIMIT,
-            include: ["metadata"] // Only need IDs (which are URLs) and maybe metadatas for context
+            include: [IncludeEnum.Metadatas]
         });
         console.timeEnd("chromaFilterQuery");
 
