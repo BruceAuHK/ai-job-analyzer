@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // Gemini API Details
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 // Use Flash for this focused task, should be sufficient and faster/cheaper
-const GEMINI_MODEL_NAME = "gemini-1.5-flash-latest";
+const GEMINI_MODEL_NAME = "gemini-2.0-flash";
 
 if (!GEMINI_API_KEY) {
   console.error("Startup Warning: Missing GEMINI_API_KEY environment variable for deep-dive-analysis route.");

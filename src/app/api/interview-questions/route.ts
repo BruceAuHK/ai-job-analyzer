@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // Gemini API Details (ensure these are accessible)
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 // Use a capable model, Flash is likely sufficient for this focused task
-const GEMINI_MODEL_NAME = "gemini-1.5-flash-latest";
+const GEMINI_MODEL_NAME = "gemini-2.0-flash";
 
 if (!GEMINI_API_KEY) {
   console.error("Startup Warning: Missing GEMINI_API_KEY environment variable for interview-questions route.");
