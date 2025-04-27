@@ -1,7 +1,0 @@
-{
-  "functions": {
-    "src/app/api/job-analysis/route.ts": {
-      "maxDuration": 300 // Sets timeout to 300 seconds (5 minutes) - Max for Pro plan
-    }
-  }
-} 
