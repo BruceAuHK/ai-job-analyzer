@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getVectorDbCollection, generateEmbedding } from '@/utils/vectorDb'; // Import generateEmbedding too
+import { IncludeEnum } from 'chromadb'; // <-- Added Import
 
 const SIMILAR_RESULTS_LIMIT = 5; // How many similar jobs to return
 
@@ -28,7 +29,7 @@ export async function POST(request: NextRequest) {
             console.time("chromaGetSourceEmbedding");
             const sourceJobData = await collection.get({
                 ids: [sourceJobUrl],
-                include: ["embeddings"]
+                include: [IncludeEnum.Embeddings]
             });
             console.timeEnd("chromaGetSourceEmbedding");
             sourceEmbedding = sourceJobData?.embeddings?.[0];
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
         if (!sourceEmbedding) {
              // --- Fallback Strategy: Retrieve document and re-embed ---
              console.warn(`Embedding not found directly for ${sourceJobUrl}. Trying to retrieve document and re-embed.`);
-             const sourceDocData = await collection.get({ ids: [sourceJobUrl], include: ["documents"] });
+             const sourceDocData = await collection.get({ ids: [sourceJobUrl], include: [IncludeEnum.Documents] });
              const sourceDocument = sourceDocData?.documents?.[0];
              if (!sourceDocument) {
                 console.error(`Could not find document for source job: ${sourceJobUrl}`);
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
         const results = await collection.query({
             queryEmbeddings: [sourceEmbedding],
             nResults: SIMILAR_RESULTS_LIMIT + 1,
-            include: ["metadatas", "documents"]
+            include: [IncludeEnum.Metadatas, IncludeEnum.Documents]
         });
         console.timeEnd("chromaSimilarQuery");
 
