@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
         const results = await collection.query({
             queryEmbeddings: [queryEmbedding],
             nResults: FILTER_RESULTS_LIMIT,
-            include: ["metadatas"] // Only need IDs (which are URLs) and maybe metadatas for context
+            include: ["metadata"] // Only need IDs (which are URLs) and maybe metadatas for context
         });
         console.timeEnd("chromaFilterQuery");
 
