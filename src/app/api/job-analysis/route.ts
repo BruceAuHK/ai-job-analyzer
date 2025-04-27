@@ -1,7 +1,8 @@
 // src/app/api/job-analysis/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 // import chromium from '@sparticuz/chromium'; // Removed sparticuz
-import puppeteer, { Browser, Page } from 'puppeteer-core'; // Use puppeteer-core
+// Change to import type as default import 'puppeteer' is unused
+import type { Browser, Page } from 'puppeteer-core'; 
 import core from 'chrome-aws-lambda'; // Added chrome-aws-lambda core
 
 // Gemini API Details
