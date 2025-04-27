@@ -58,11 +58,18 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
         // Use chrome-aws-lambda executablePath and args
         const executablePath = await core.executablePath;
 
-        // Check if running locally vs in Lambda/Vercel
-        // chrome-aws-lambda handles local path detection if installed correctly
+        // --- NEW: Explicitly check if executablePath was found ---
+        if (!executablePath) {
+            throw new Error(
+                "Chromium executable path could not be resolved by chrome-aws-lambda. " +
+                "Ensure chrome-aws-lambda is installed correctly and compatible with the Vercel environment."
+            );
+        }
+        // --- END NEW Check ---
+
         const options = await core.puppeteer.launch({ // Use core.puppeteer.launch
             args: core.args,
-            executablePath: executablePath || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', // Provide a local fallback path if needed
+            executablePath: executablePath, // <-- REMOVED local fallback
             headless: core.headless, // Use headless setting from chrome-aws-lambda
             ignoreHTTPSErrors: true, // This might be valid again with older puppeteer-core
         });
