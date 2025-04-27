@@ -178,4 +178,4 @@ async function generateEmbeddingsBatch(texts: string[], batchSize: number = 100)
     return allEmbeddings;
 }
 
-export { getVectorDbCollection, generateEmbedding, generateEmbeddingsBatch }; // Export helpers 
+export { generateEmbedding, generateEmbeddingsBatch }; // Export helpers 
