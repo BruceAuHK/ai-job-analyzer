@@ -1,7 +1,8 @@
 // src/app/api/job-analysis/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import chromium from '@sparticuz/chromium';
-import puppeteer, { Browser, Page } from 'puppeteer-core';
+// import chromium from '@sparticuz/chromium'; // Removed sparticuz
+import puppeteer, { Browser, Page } from 'puppeteer-core'; // Use puppeteer-core
+import core from 'chrome-aws-lambda'; // Added chrome-aws-lambda core
 
 // Gemini API Details
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -52,16 +53,21 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
 
     try {
         console.log(`Launching browser for JobsDB scraping query: ${query}`);
-        // Get executable path from @sparticuz/chromium
-        const executablePath = await chromium.executablePath();
 
-        browser = await puppeteer.launch({
-            args: chromium.args,
-            defaultViewport: chromium.defaultViewport,
-            executablePath: executablePath,
-            // Defaulting to true headless mode due to type inconsistencies with chromium.headless
-            headless: true
+        // Use chrome-aws-lambda executablePath and args
+        const executablePath = await core.executablePath;
+
+        // Check if running locally vs in Lambda/Vercel
+        // chrome-aws-lambda handles local path detection if installed correctly
+        const options = await core.puppeteer.launch({ // Use core.puppeteer.launch
+            args: core.args,
+            executablePath: executablePath || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', // Provide a local fallback path if needed
+            headless: core.headless, // Use headless setting from chrome-aws-lambda
+            ignoreHTTPSErrors: true, // This might be valid again with older puppeteer-core
         });
+
+        browser = options; // Assign the launched browser
+
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'); // Generic User Agent
         page.setDefaultNavigationTimeout(90000); // 90 seconds timeout
