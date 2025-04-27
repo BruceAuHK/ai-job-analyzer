@@ -1,6 +1,7 @@
 // src/app/api/job-analysis/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import puppeteer, { Browser, Page } from 'puppeteer';
+import chromium from '@sparticuz/chromium';
+import puppeteer, { Browser, Page } from 'puppeteer-core';
 
 // Gemini API Details
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -51,8 +52,16 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
 
     try {
         console.log(`Launching browser for JobsDB scraping query: ${query}`);
-        // Ensure Puppeteer executable path is correctly configured for Vercel/deployment if needed
-        browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+        // Get executable path from @sparticuz/chromium
+        const executablePath = await chromium.executablePath();
+
+        browser = await puppeteer.launch({
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            executablePath: executablePath,
+            // Map 'new' headless mode from sparticuz to 'true' for puppeteer-core
+            headless: chromium.headless === 'new' ? true : chromium.headless
+        });
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'); // Generic User Agent
         page.setDefaultNavigationTimeout(90000); // 90 seconds timeout
