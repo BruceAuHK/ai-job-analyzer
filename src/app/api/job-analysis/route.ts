@@ -1,13 +1,9 @@
 // src/app/api/job-analysis/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import playwright from 'playwright-aws-lambda'; // Reverted back to ES Module Import
-// const playwright = require('playwright-aws-lambda'); // OLD CommonJS Import
-import type { Browser } from 'playwright-core'; // Use types from playwright-core
+import axios from 'axios'; // <-- Added axios import
 
-// --- Debugging Logs ---
-console.log('Playwright module:', playwright); 
-console.log('LaunchChromium available:', typeof playwright?.launchChromium);
-// --- End Debugging Logs ---
+
+// --- Removed Playwright Debugging Logs ---
 
 // Gemini API Details
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -28,77 +24,147 @@ interface ScrapedJob {
     company_name: string | null;
     location: string | null;
     url: string | null;
-    description: string | null; // Allow null initially
+    description: string | null;
+}
+
+// Interface for the initial job data extracted by ScrapingBee
+interface ExtractedJob {
+    title?: string | null;
+    company_name?: string | null;
+    location?: string | null;
+    url?: string | null;
 }
 
 interface StatItem { name: string; count: number; } // Reuse or define globally
 
-// --- Web Scraping Function for JobsDB HK (Ensure it gets full descriptions) ---
+// --- NEW Web Scraping Function using ScrapingBee ---
 async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
-    let browser: Browser | null = null;
-    const allJobsData: ScrapedJob[] = [];
-    // const jobsDbBaseUrl = 'https://hk.jobsdb.com'; // Removed unused
-    // const jobsDbSearchUrl = 'https://hk.jobsdb.com/hk/en/Search/FindJobs'; // Removed unused
-    // const maxPagesToScrape = 3; // Limit pagination pages - Removed unused
-    // const detailLimitPerPageScrape = 100; // Limit description scraping - Removed unused
-
-    // Selectors (Verify these regularly!) - Removed unused
-    // const KEYWORDS_INPUT_SELECTOR = '#keywords-input';
-    // const SEARCH_BUTTON_SELECTOR = 'button[data-automation="searchButton"]';
-    // const JOB_CARD_SELECTOR = 'article[data-automation="normalJob"]';
-    // const JOB_TITLE_SELECTOR_LIST = '[data-automation="jobTitle"]';
-    // const JOB_COMPANY_SELECTOR_LIST = '[data-automation="jobCompany"]';
-    // const JOB_LOCATION_SELECTOR_LIST = '[data-automation="jobLocation"]';
-    // const JOB_LINK_SELECTOR_LIST = 'a[data-automation="jobTitle"], a[data-automation="job-list-item-link-overlay"]';
-    // Use a more general selector for description as layout might vary
-    // const JOB_DESCRIPTION_SELECTOR_DETAIL = 'div[data-automation="jobAdDetails"], #jobDescription'; // Added fallback ID
-    // const NEXT_PAGE_SELECTOR = 'a[aria-label="Next"]:not([aria-hidden="true"])';
-
-    // let currentPage = 1; // Removed unused
+    const apiKey = process.env.SCRAPINGBEE_API_KEY;
+    if (!apiKey) {
+        console.error("ScrapingBee API Key not found in environment variables.");
+        // Return empty array or throw error depending on desired handling
+        return [];
+    }
 
     try {
-        console.log(`Launching browser for JobsDB scraping query: ${query}`);
-        
-        // Launch browser using playwright-aws-lambda
-        browser = await playwright.launchChromium();
-
-        if (!browser) {
-            throw new Error("Failed to launch browser instance.");
-        }
-
-        const context = await browser.newContext();
-        const page = await context.newPage();
-        
-        await page.setExtraHTTPHeaders({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        console.log(`Scraping JobsDB for query: "${query}" using ScrapingBee`);
+        // 1. Scrape the search results page for job listings
+        const searchResponse = await axios.get('https://app.scrapingbee.com/api/v1/', { // Updated endpoint
+            params: {
+                api_key: apiKey,
+                url: `https://hk.jobsdb.com/hk/search-jobs/${encodeURIComponent(query)}/1`, // Specify page 1 explicitly
+                render_js: true, // Enable JavaScript rendering
+                premium_proxy: true, // Use premium proxies to avoid blocks
+                block_resources: false, // Ensure CSS/JS are loaded for dynamic content if needed
+                // Wait for a specific element that indicates jobs are loaded
+                wait_for: 'article[data-automation="job-card"]',
+                extract_rules: JSON.stringify({
+                    jobs: {
+                        selector: 'article[data-automation="job-card"]', // Target job cards
+                        type: 'list', // Expect multiple elements
+                        output: {
+                            // Extract title text
+                            title: '[data-automation="jobTitle"]',
+                            // Extract company text
+                            company_name: '[data-automation="jobCompany"]',
+                             // Extract location text
+                            location: '[data-automation="jobLocation"]',
+                            // Extract the URL from the link containing the title
+                            // Look for the link within the job card, often wrapping the title
+                            url: {
+                                selector: 'a[data-automation="jobTitle"]', // Link wrapping title
+                                output: '@href' // Extract the href attribute
+                            }
+                        },
+                    },
+                }),
+            },
+             headers: { 'Accept': 'application/json' } // Ensure JSON response is requested
         });
-        page.setDefaultTimeout(90000); // 90 seconds timeout
 
-        // Navigate to the search page
-        await page.goto(`https://hk.jobsdb.com/hk/search-jobs/${encodeURIComponent(query)}`, {
-            waitUntil: 'networkidle'
-        });
+        // Check if the response has data and the expected 'jobs' array
+        const jobsList: ExtractedJob[] = searchResponse.data?.jobs || []; // Use the new interface
+        console.log(`Scraped ${jobsList.length} initial job listings from search page.`);
 
-        // Wait for job listings to load
-        await page.waitForSelector('article[data-automation="job-card"]', {
-            state: 'visible'
-        });
+         // Limit the number of jobs to fetch descriptions for (e.g., first 15)
+         const jobsToDetail = jobsList.slice(0, 15);
+         console.log(`Fetching details for the top ${jobsToDetail.length} jobs...`);
 
-        // ... rest of the function ...
 
-    } catch (error: unknown) {
-        // Type check error before accessing properties
-        const message = error instanceof Error ? error.message : String(error);
-        console.error("Scraping function error:", message);
-        // Don't reset allJobsData here, return what was collected
-    } finally {
-        if (browser) {
-            console.log("Closing browser...");
-            await browser.close();
-            console.log("Browser closed.");
-        }
+        // 2. Map to ScrapedJob interface and fetch descriptions for each job URL
+        const scrapedJobs: ScrapedJob[] = await Promise.all(
+            jobsToDetail.map(async (job: ExtractedJob, index: number): Promise<ScrapedJob> => {
+                let description: string | null = null;
+                const jobUrl = job.url ? `https://hk.jobsdb.com${job.url}` : null;
+
+                if (jobUrl) {
+                    await new Promise(resolve => setTimeout(resolve, 200 + index * 50));
+                    try {
+                        console.log(`Fetching details for: ${jobUrl}`);
+                        const detailResponse = await axios.get('https://app.scrapingbee.com/api/v1/', {
+                            params: {
+                                api_key: apiKey,
+                                url: jobUrl,
+                                render_js: true,
+                                premium_proxy: true,
+                                block_resources: false,
+                                wait_for: 'div[data-automation="jobAdDetails"]',
+                                extract_rules: JSON.stringify({
+                                    description: 'div[data-automation="jobAdDetails"]',
+                                }),
+                            },
+                            headers: { 'Accept': 'application/json' }
+                        });
+                        // Assign fetched description or default string
+                        description = detailResponse.data?.description || 'No description available (Extractor failed).';
+                    } catch (error: unknown) { // Use unknown type for error
+                        const errorDetails = error instanceof Error ? error.message : String(error);
+                        // Check for axios specific error response
+                        if (axios.isAxiosError(error) && error.response?.data?.message) {
+                             const axiosErrorMessage = error.response.data.message;
+                             console.error(`Failed to scrape description for ${jobUrl}: AxiosError - ${axiosErrorMessage}`);
+                             description = `Failed to fetch description: ${axiosErrorMessage.substring(0,100)}`;
+                         } else {
+                             console.error(`Failed to scrape description for ${jobUrl}: ${errorDetails}`);
+                             description = `Failed to fetch description: ${errorDetails.substring(0,100)}`;
+                         }
+                    }
+                } else {
+                    console.warn(`Skipping description fetch for job index ${index} due to missing URL.`);
+                     // Assign specific string
+                    description = 'No URL found for description scraping.';
+                }
+
+                // At this point, 'description' MUST be a string
+                // Ensure TS knows this for safety, although logic dictates it.
+                const finalDescription = description as string; 
+
+                // Log the length *after* try/catch/else
+                console.log(`Processed description for: ${jobUrl || 'Unknown URL'} (Length: ${finalDescription.length})`);
+
+                // Construct the final ScrapedJob object
+                return {
+                    title: job.title || null,
+                    company_name: job.company_name || null,
+                    location: job.location || null,
+                    url: jobUrl,
+                    description: finalDescription, // Use the guaranteed string value
+                };
+            })
+        );
+
+        console.log(`Finished fetching details. Total jobs with attempted descriptions: ${scrapedJobs.length}`);
+        return scrapedJobs;
+
+    } catch (error: unknown) { // Use unknown type for error
+        // Check for axios specific error response
+        let errorDetails = error instanceof Error ? error.message : String(error);
+         if (axios.isAxiosError(error) && error.response?.data?.message) {
+             errorDetails = `AxiosError: ${error.response.data.message}`;
+         }
+        console.error(`ScrapingBee API request failed: ${errorDetails}`);
+        return [];
     }
-    return allJobsData;
 }
 // --- End Web Scraping Function ---
 
@@ -122,15 +188,16 @@ export async function POST(request: NextRequest) {
         if (typeof userRoleQuery !== 'string' || !userRoleQuery.trim()) { return NextResponse.json({ error: 'Invalid input: Missing userRoleQuery.' }, { status: 400 }); }
         // resumeText is optional, so no strict check needed unless you want to enforce it
         const hasResume = typeof resumeText === 'string' && resumeText.trim().length > 0;
-        console.log(`Received analysis request for: "${userRoleQuery}" ${hasResume ? 'WITH resume' : 'without resume'}. Bypassing RAG.`);
+        console.log(`Received analysis request for: "${userRoleQuery}" ${hasResume ? 'WITH resume' : 'without resume'}. Using ScrapingBee.`);
 
-        // === Step 1: Execute Web Scraping ===
-        scrapedJobResults = await scrapeJobsDB_HK(userRoleQuery);
-        console.log(`Scraping finished. Found ${scrapedJobResults.length} basic job entries.`);
+        // === Step 1: Execute Web Scraping (Now uses ScrapingBee) ===
+        scrapedJobResults = await scrapeJobsDB_HK(userRoleQuery); // Calls the new function
+        console.log(`Scraping finished. Found ${scrapedJobResults.length} jobs with fetched descriptions.`);
+        // Filter for jobs where description fetching was successful (or at least attempted and didn't hard fail)
         const jobsWithDescriptions = scrapedJobResults.filter(j =>
-            j.url && j.description && !j.description.includes('Failed') && !j.description.includes('Could not')
+            j.url && j.description && !j.description.startsWith('Failed to fetch description') && j.description !== 'No URL found' && j.description !== 'No description available (Extractor failed).'
         );
-        console.log(`Found ${jobsWithDescriptions.length} jobs with successfully scraped descriptions.`);
+        console.log(`Found ${jobsWithDescriptions.length} jobs with valid descriptions for AI analysis.`);
 
         // === Step 2: Calculate Statistics (from all scraped jobs) ===
         // This remains the same, calculated from the full scrape
@@ -150,23 +217,26 @@ export async function POST(request: NextRequest) {
 
         // === Step 3: Prepare Job Context for LLM (No RAG) ===
         // Format all successfully scraped jobs with descriptions
-        let allScrapedJobContext = 'No job details available for analysis.';
+        let allScrapedJobContext = 'No valid job details available for analysis.';
         if (jobsWithDescriptions.length > 0) {
             allScrapedJobContext = jobsWithDescriptions.map((job, index) => {
-                return `Job ${index + 1}:\n` + // Simplified identifier
-                       `Title: ${job.title || 'N/A'}\n` +
-                       `Company: ${job.company_name || 'N/A'}\n` + // Include company
-                       `Location: ${job.location || 'N/A'}\n` + // Include location
-                       `URL: ${job.url || '#'}\n` +
-                       `Description: ${job.description || 'No description available.'}`;
-            }).join('\n\n---\n\n');
+                return `Job ${index + 1}:\\n` +
+                       `Title: ${job.title || 'N/A'}\\n` +
+                       `Company: ${job.company_name || 'N/A'}\\n` +
+                       `Location: ${job.location || 'N/A'}\\n` +
+                       `URL: ${job.url || '#'}\\n` + // Use the potentially cleaned URL
+                       `Description: ${job.description || 'No description available.'}`; // Use the fetched description
+            }).join('\\n\\n---\\n\\n');
+            console.log(`Prepared context with ${jobsWithDescriptions.length} full job descriptions.`);
+        } else {
+            console.log("No valid job descriptions found to send to AI.");
+            // Consider returning early or adjusting the prompt if no descriptions are available
         }
-        console.log(`Prepared context with ${jobsWithDescriptions.length} full job descriptions.`);
         // Optional: Add a check for context length if needed
         const MAX_CONTEXT_CHARS = 800000; // Estimate ~800k chars as a safe limit before hitting token issues
         if (allScrapedJobContext.length > MAX_CONTEXT_CHARS) {
             console.warn(`Context length (${allScrapedJobContext.length} chars) is very large, potentially exceeding limits. Truncating.`);
-            allScrapedJobContext = allScrapedJobContext.substring(0, MAX_CONTEXT_CHARS) + "\n\n... (Context Truncated) ...";
+            allScrapedJobContext = allScrapedJobContext.substring(0, MAX_CONTEXT_CHARS) + "\\n\\n... (Context Truncated) ...";
             // Alternatively, could select a subset of jobs here instead of hard truncation
         }
 
@@ -258,7 +328,7 @@ export async function POST(request: NextRequest) {
           Context:
           - User's target role/skill query: "${userRoleQuery}"
           ${hasResume ? `- User's Resume Text:\n"""\n${resumeText}\n"""` : ''}
-          - The following ${jobsWithDescriptions.length} job descriptions (with URLs) were scraped from the search results page(s). **You have the full context needed for analysis below.**
+          - The following ${jobsWithDescriptions.length} job descriptions (with URLs) were processed via a scraping service. **You have the full context needed for analysis below.**
 
           Tasks:
           Based *only* on the provided context...
@@ -288,7 +358,7 @@ export async function POST(request: NextRequest) {
 
           ${competitiveLandscapeInstruction}
 
-          --- Scraped Job Information (Found: ${jobsWithDescriptions.length}) ---
+          --- Scraped Job Information (Processed: ${jobsWithDescriptions.length}) ---
           ${allScrapedJobContext}
           --- END Scraped Job Information ---
 
@@ -297,11 +367,11 @@ export async function POST(request: NextRequest) {
 
 
         // === Step 5: Call Gemini API ===
-        console.log(`Sending analysis prompt to Gemini (${GEMINI_MODEL_NAME}) ${hasResume ? 'with resume context' : ''} (Non-RAG)`); // Updated log
+        console.log(`Sending analysis prompt to Gemini (${GEMINI_MODEL_NAME}) ${hasResume ? 'with resume context' : ''} (Using ScrapingBee data)`);
         console.time("geminiApiCallLargeContext");
         const requestBody = { contents: [{ parts: [{ "text": prompt }] }] };
         const geminiApiResponse = await fetch(geminiApiUrlWithKey, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody),
+             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody),
         });
         console.timeEnd("geminiApiCallLargeContext");
         console.log(`Gemini API Response Status: ${geminiApiResponse.status} ${geminiApiResponse.statusText}`);
@@ -310,44 +380,37 @@ export async function POST(request: NextRequest) {
 
         // === Step 6: Parse Gemini Response ===
         let analysisText = '';
-        try {
-            // Check for non-JSON errors first
+         try {
              if (!geminiApiResponse.ok) {
                  console.error("Gemini API Error Raw Response:", rawResponseText);
                  throw new Error(`Gemini API error (${geminiApiResponse.status}): ${geminiApiResponse.statusText}. Check logs for details.`);
              }
-             // Attempt to parse JSON
              if (rawResponseText && rawResponseText.trim().startsWith('{')) {
                  const geminiResponseData = JSON.parse(rawResponseText);
-                 // Check for safety blocks or other API-level errors reported in JSON
                  const blockReason = geminiResponseData.promptFeedback?.blockReason;
                  if (blockReason) {
                      console.error(`Gemini request blocked by safety settings: ${blockReason}`);
                      throw new Error(`Request blocked by safety settings: ${blockReason}`);
                  }
                  const finishReason = geminiResponseData.candidates?.[0]?.finishReason;
-                  if (finishReason && !['STOP', 'MAX_TOKENS'].includes(finishReason)) { // Allow MAX_TOKENS
+                  if (finishReason && !['STOP', 'MAX_TOKENS'].includes(finishReason)) {
                       console.error(`Gemini generation finished unexpectedly: ${finishReason}`);
-                      // Potentially throw, or just log and try to extract partial text
                   }
                   analysisText = geminiResponseData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
               } else {
-                  // Handle unexpected non-JSON success response? Very unlikely.
                   console.warn("Received non-JSON success response from Gemini:", rawResponseText.substring(0, 200));
-                  analysisText = rawResponseText; // Use raw text if parse fails but status was OK?
+                  analysisText = rawResponseText;
               }
          } catch (e: unknown) {
               console.error("Error processing Gemini response:", e);
-              // Type check error before accessing properties
               const message = e instanceof Error ? e.message : 'Failed to process AI response';
               return NextResponse.json({ error: message }, { status: 500 });
          }
 
-
         if (!analysisText) { console.error("Gemini response text empty after processing."); return NextResponse.json({ error: 'Received empty analysis from AI.' }, { status: 500 }); }
 
         console.log("--- Full Gemini Analysis Text ---");
-        console.log(analysisText); // Ensure this is uncommented
+        console.log(analysisText);
         console.log("--- End Gemini Analysis Text ---");
 
         // --- Parsing Logic ---
@@ -386,7 +449,7 @@ export async function POST(request: NextRequest) {
            experience: experienceMatch ? `Found at index ${experienceMatch.index}` : "Not Found",
            insights: insightsMatch ? `Found at index ${insightsMatch.index}` : "Not Found",
            trends: trendsMatch ? `Found at index ${trendsMatch.index}` : "Not Found",
-           landscape: landscapeMatch ? `Found at index ${landscapeMatch.index}` : (hasResume ? "Not Found" : "Not Applicable (No Resume)") // <-- NEW Log
+           landscape: landscapeMatch ? `Found at index ${landscapeMatch.index}` : (hasResume ? "Not Found" : "Not Applicable (No Resume)")
         });
 
         // Calculate Indices
@@ -396,7 +459,7 @@ export async function POST(request: NextRequest) {
         const experienceIdx = experienceMatch?.index ?? -1;
         const insightsIdx = insightsMatch?.index ?? -1;
         const trendsIdx = trendsMatch?.index ?? -1;
-        const landscapeIdx = landscapeMatch?.index ?? -1; // <-- NEW Index
+        const landscapeIdx = landscapeMatch?.index ?? -1;
 
         // Calculate Content Start Points
         const calculateContentStart = (match: RegExpMatchArray | null, index: number): number => {
@@ -411,7 +474,7 @@ export async function POST(request: NextRequest) {
         const experienceContentStart = calculateContentStart(experienceMatch, experienceIdx);
         const insightsContentStart = calculateContentStart(insightsMatch, insightsIdx);
         const trendsContentStart = calculateContentStart(trendsMatch, trendsIdx);
-        const landscapeContentStart = calculateContentStart(landscapeMatch, landscapeIdx); // <-- NEW Content Start
+        const landscapeContentStart = calculateContentStart(landscapeMatch, landscapeIdx);
 
         // Sort sections found
         const sections = [
@@ -421,14 +484,13 @@ export async function POST(request: NextRequest) {
             { name: 'experience', index: experienceIdx, contentStart: experienceContentStart },
             { name: 'insights', index: insightsIdx, contentStart: insightsContentStart },
             { name: 'trends', index: trendsIdx, contentStart: trendsContentStart },
-            // Conditionally add landscape section only if the marker was found
-             ...(landscapeIdx !== -1 && landscapeContentStart !== -1 ? [{ name: 'landscape', index: landscapeIdx, contentStart: landscapeContentStart }] : [])
+            ...(landscapeIdx !== -1 && landscapeContentStart !== -1 ? [{ name: 'landscape', index: landscapeIdx, contentStart: landscapeContentStart }] : [])
         ].filter(s => s.index !== -1 && s.contentStart !== -1).sort((a, b) => a.index - b.index);
 
         console.log("Found & Sorted Sections for Parsing:", sections.map(s => s.name));
 
         // Extract section text
-        if (hasResume) competitiveLandscape = "Could not parse competitive analysis."; // Reset default if resume exists but parsing fails
+        if (hasResume) competitiveLandscape = "Could not parse competitive analysis.";
         for (let i = 0; i < sections.length; i++) {
             const currentSection = sections[i];
             const nextSection = sections[i + 1];
@@ -448,7 +510,7 @@ export async function POST(request: NextRequest) {
             else if (currentSection.name === 'experience') experienceSummary = sectionText || experienceSummary;
             else if (currentSection.name === 'insights') marketInsights = sectionText || marketInsights;
             else if (currentSection.name === 'trends') detailedTrends = sectionText || detailedTrends;
-            else if (currentSection.name === 'landscape') competitiveLandscape = sectionText || competitiveLandscape; // <-- NEW Assignment
+            else if (currentSection.name === 'landscape') competitiveLandscape = sectionText || competitiveLandscape;
         }
         // --- End of Parsing Logic ---
 
@@ -457,11 +519,10 @@ export async function POST(request: NextRequest) {
         const allJobLinksForFrontend = scrapedJobResults.map(job => ({
             title: job.title || 'Scraped Job',
             url: job.url || '#',
-            // Keep snippet for potential card display, but add full description
-            snippet: job.description && !job.description.includes('Failed') && !job.description.includes('Could not')
+            snippet: job.description && !job.description.startsWith('Failed') && !job.description.startsWith('No URL')
                 ? job.description.substring(0, 150) + '...'
-                : `${job.company_name || ''} - ${job.location || ''}`.substring(0, 150),
-            description: job.description || 'No description available.', // ADD FULL DESCRIPTION
+                : `Company: ${job.company_name || 'N/A'} | Location: ${job.location || 'N/A'} (Description fetch issues)`.substring(0,150),
+            description: job.description || 'No description available.',
             company_name: job.company_name || undefined,
             location: job.location || undefined
         }));
@@ -475,7 +536,7 @@ export async function POST(request: NextRequest) {
              experienceSummaryLength: experienceSummary.length,
              marketInsightsLength: marketInsights.length,
              detailedTrendsLength: detailedTrends.length,
-             competitiveLandscapeLength: hasResume ? competitiveLandscape.length : "N/A", // <-- NEW Log item
+             competitiveLandscapeLength: hasResume ? competitiveLandscape.length : "N/A",
              topCompaniesCount: topCompanies.length,
              topLocationsCount: topLocations.length,
              commonStackParsed: !commonStack.startsWith("Could not parse"),
@@ -484,7 +545,7 @@ export async function POST(request: NextRequest) {
              experienceSummaryParsed: !experienceSummary.startsWith("Could not parse"),
              marketInsightsParsed: !marketInsights.startsWith("Could not parse"),
              detailedTrendsParsed: !detailedTrends.startsWith("Could not parse"),
-             competitiveLandscapeParsed: hasResume ? !competitiveLandscape.startsWith("Could not parse") : "N/A", // <-- NEW Log item
+             competitiveLandscapeParsed: hasResume ? !competitiveLandscape.startsWith("Could not parse") : "N/A",
          });
 
         return NextResponse.json({
@@ -495,15 +556,14 @@ export async function POST(request: NextRequest) {
             experienceSummary: experienceSummary,
             marketInsights: marketInsights,
             detailedTrends: detailedTrends,
-            competitiveLandscape: hasResume ? competitiveLandscape : null, // <-- NEW Field (null if no resume)
+            competitiveLandscape: hasResume ? competitiveLandscape : null,
             topCompanies: topCompanies,
             topLocations: topLocations,
-            analysisDisclaimer: `Note: Stats from ${scrapedJobResults.length} scraped jobs. AI analysis prioritizes jobs based on fit and potential using ${jobsWithDescriptions.length} full descriptions sent directly to the model. Verify details.`,
+            analysisDisclaimer: `Note: Stats from ${scrapedJobResults.length} initial listings processed via ScrapingBee. AI analysis prioritizes jobs based on fit and potential using ${jobsWithDescriptions.length} successfully fetched descriptions. Verify details.`,
         });
 
     } catch (error: unknown) {
         console.error("API Route General Error:", error);
-        // Type check error before accessing properties
         const message = error instanceof Error ? error.message : String(error);
         const errorMessage = `An internal server error occurred: ${message}`;
         return NextResponse.json({ error: errorMessage }, { status: 500 });

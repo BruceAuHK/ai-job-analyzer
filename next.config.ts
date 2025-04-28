@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     'playwright-aws-lambda', // Use playwright-aws-lambda
     // '@sparticuz/chromium', // Ensure sparticuz is external - Removed
     // 'puppeteer-core',      // Ensure puppeteer-core is external - Removed
+    'axios', // Add axios
   ],
   /* other config options here */
 };
