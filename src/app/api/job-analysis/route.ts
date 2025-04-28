@@ -83,13 +83,13 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
         });
 
         // Check if the response has data and the expected 'jobs' array
-        const jobsList: ExtractedJob[] = searchResponse.data?.jobs || []; // Use the new interface
+        const jobsList: ExtractedJob[] = searchResponse.data?.jobs || [];
         console.log(`Scraped ${jobsList.length} initial job listings from search page.`);
 
-         // Limit the number of jobs to fetch descriptions for (e.g., first 15)
-         const jobsToDetail = jobsList.slice(0, 15);
-         console.log(`Fetching details for the top ${jobsToDetail.length} jobs...`);
-
+        // Limit the number of jobs to fetch descriptions for (e.g., first 5)
+        const DETAIL_FETCH_LIMIT = 5; // <-- Reduced limit
+        const jobsToDetail = jobsList.slice(0, DETAIL_FETCH_LIMIT);
+        console.log(`Fetching details for the top ${jobsToDetail.length} jobs...`);
 
         // 2. Map to ScrapedJob interface and fetch descriptions for each job URL
         const scrapedJobs: ScrapedJob[] = await Promise.all(
@@ -107,7 +107,7 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
                                 url: jobUrl,
                                 render_js: true,
                                 premium_proxy: true,
-                                block_resources: false,
+                                block_resources: true, // <-- Set to true to potentially speed up text extraction
                                 wait_for: 'div[data-automation="jobAdDetails"]',
                                 extract_rules: JSON.stringify({
                                     description: 'div[data-automation="jobAdDetails"]',
@@ -115,9 +115,8 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
                             },
                             headers: { 'Accept': 'application/json' }
                         });
-                        // Assign fetched description or default string
                         description = detailResponse.data?.description || 'No description available (Extractor failed).';
-                    } catch (error: unknown) { // Use unknown type for error
+                    } catch (error: unknown) {
                         const errorDetails = error instanceof Error ? error.message : String(error);
                         // Check for axios specific error response
                         if (axios.isAxiosError(error) && error.response?.data?.message) {
