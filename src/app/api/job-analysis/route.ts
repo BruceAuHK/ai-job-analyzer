@@ -1,8 +1,13 @@
 // src/app/api/job-analysis/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-// import playwright from 'playwright-aws-lambda'; // OLD ES Module Import
-const playwright = require('playwright-aws-lambda'); // NEW CommonJS Import
+import playwright from 'playwright-aws-lambda'; // Reverted back to ES Module Import
+// const playwright = require('playwright-aws-lambda'); // OLD CommonJS Import
 import type { Browser } from 'playwright-core'; // Use types from playwright-core
+
+// --- Debugging Logs ---
+console.log('Playwright module:', playwright); 
+console.log('LaunchChromium available:', typeof playwright?.launchChromium);
+// --- End Debugging Logs ---
 
 // Gemini API Details
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
