@@ -249,39 +249,43 @@ export default function Home() {
       }
   }, [analysisResult?.commonStack]);
 
-  // --- Effect to cycle through loading messages ---
+  // --- Effect to cycle through loading messages --- (Updated for ScrapingBee flow)
   useEffect(() => {
     const timers: NodeJS.Timeout[] = [];
     if (loading) {
         // Reset messages when loading starts
-        setLoadingStepMessage("Initiating job search...");
+        setLoadingStepMessage("Initiating job search via API...");
 
-        // Simulate backend steps with delays (adjust timings as needed)
+        // Simulate backend steps with adjusted delays
         timers.push(setTimeout(() => {
-            if(loading) setLoadingStepMessage("Scraping job list pages (up to 3)...");
-        }, 2500)); // Example delay
-
-        timers.push(setTimeout(() => {
-             if(loading) setLoadingStepMessage("Fetching key job details (up to 10)...");
-        }, 8000)); // Example delay
+            if(loading) setLoadingStepMessage("Fetching job list summary...");
+        }, 1500)); // Step 1a: Initial API call
 
         timers.push(setTimeout(() => {
-            if(loading) setLoadingStepMessage("Sending data to AI for analysis...");
-        }, 18000)); // Example delay
+             if(loading) setLoadingStepMessage("Fetching details for top 5 job listings..."); // Step 1b: Detail scraping
+        }, 5000)); // Takes longer now
 
         timers.push(setTimeout(() => {
-             if(loading) setLoadingStepMessage("Generating insights & recommendations (almost there!)...");
-        }, 28000)); // Example delay
+            if(loading) setLoadingStepMessage("Calculating market statistics..."); // Step 2
+       }, 12000)); // After detail scraping
+
+       timers.push(setTimeout(() => {
+            if(loading) setLoadingStepMessage("Sending findings to AI for analysis..."); // Steps 3, 4, 5
+       }, 15000));
+
+        timers.push(setTimeout(() => {
+             if(loading) setLoadingStepMessage("Generating insights & recommendations (almost there!)..."); // Step 6
+        }, 25000)); // Gemini processing time
 
     } else {
       setLoadingStepMessage(''); // Clear message when loading finishes
     }
 
-    // Cleanup function to clear timeouts if component unmounts or loading stops early
+    // Cleanup function
     return () => {
       timers.forEach(clearTimeout);
     };
-  }, [loading]); // This effect runs whenever the 'loading' state changes
+  }, [loading]); // Runs when 'loading' state changes
 
   // --- API Call Handlers ---
 

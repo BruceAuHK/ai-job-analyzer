@@ -39,6 +39,7 @@ interface StatItem { name: string; count: number; } // Reuse or define globally
 
 // --- NEW Web Scraping Function using ScrapingBee ---
 async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
+    console.time("scrapeJobsDB_HK_total");
     const apiKey = process.env.SCRAPINGBEE_API_KEY;
     if (!apiKey) {
         console.error("ScrapingBee API Key not found in environment variables.");
@@ -47,75 +48,84 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
     }
 
     try {
-        console.log(`Scraping JobsDB for query: "${query}" using ScrapingBee`);
-        // 1. Scrape the search results page for job listings
-        const searchResponse = await axios.get('https://app.scrapingbee.com/api/v1/', { // Updated endpoint
-            params: {
-                api_key: apiKey,
-                url: `https://hk.jobsdb.com/hk/search-jobs/${encodeURIComponent(query)}/1`, // Specify page 1 explicitly
-                render_js: true, // Enable JavaScript rendering
-                premium_proxy: true, // Use premium proxies to avoid blocks
-                block_resources: false, // Ensure CSS/JS are loaded for dynamic content if needed
-                // Wait for a specific element that indicates jobs are loaded
-                wait_for: 'article[data-automation="job-card"]',
-                extract_rules: JSON.stringify({
-                    jobs: {
-                        selector: 'article[data-automation="job-card"]', // Target job cards
-                        type: 'list', // Expect multiple elements
-                        output: {
-                            // Extract title text
-                            title: '[data-automation="jobTitle"]',
-                            // Extract company text
-                            company_name: '[data-automation="jobCompany"]',
-                             // Extract location text
-                            location: '[data-automation="jobLocation"]',
-                            // Extract the URL from the link containing the title
-                            // Look for the link within the job card, often wrapping the title
-                            url: {
-                                selector: 'a[data-automation="jobTitle"]', // Link wrapping title
-                                output: '@href' // Extract the href attribute
-                            }
-                        },
+        console.log(`[ScrapingBee] Starting search request for query: "${query}"`);
+        const searchParams = {
+            api_key: apiKey,
+            url: `https://hk.jobsdb.com/hk/search-jobs/${encodeURIComponent(query)}/1`,
+            render_js: true,
+            premium_proxy: true,
+            block_resources: false,
+            wait_for: 'article[data-automation="job-card"]',
+            extract_rules: JSON.stringify({
+                jobs: {
+                    selector: 'article[data-automation="job-card"]', // Target job cards
+                    type: 'list', // Expect multiple elements
+                    output: {
+                        // Extract title text
+                        title: '[data-automation="jobTitle"]',
+                        // Extract company text
+                        company_name: '[data-automation="jobCompany"]',
+                         // Extract location text
+                        location: '[data-automation="jobLocation"]',
+                        // Extract the URL from the link containing the title
+                        // Look for the link within the job card, often wrapping the title
+                        url: {
+                            selector: 'a[data-automation="jobTitle"]', // Link wrapping title
+                            output: '@href' // Extract the href attribute
+                        }
                     },
-                }),
-            },
-             headers: { 'Accept': 'application/json' } // Ensure JSON response is requested
+                },
+            }),
+        };
+        console.log("[ScrapingBee] Search Params:", { url: searchParams.url, wait_for: searchParams.wait_for, render_js: searchParams.render_js }); // Log key params
+        console.time("scrapingbee_search_request");
+        const searchResponse = await axios.get('https://app.scrapingbee.com/api/v1/', {
+            params: searchParams,
+            headers: { 'Accept': 'application/json' }
         });
+        console.timeEnd("scrapingbee_search_request");
+        console.log(`[ScrapingBee] Search Response Status: ${searchResponse.status}`);
+        // console.log("[ScrapingBee] Search Response Headers:", searchResponse.headers); // Optional: Log headers if needed
 
-        // Check if the response has data and the expected 'jobs' array
         const jobsList: ExtractedJob[] = searchResponse.data?.jobs || [];
-        console.log(`Scraped ${jobsList.length} initial job listings from search page.`);
+        console.log(`[ScrapingBee] Found ${jobsList.length} initial listings from search response.`);
 
-        // Limit the number of jobs to fetch descriptions for (e.g., first 5)
-        const DETAIL_FETCH_LIMIT = 5; // <-- Reduced limit
+        const DETAIL_FETCH_LIMIT = 5;
         const jobsToDetail = jobsList.slice(0, DETAIL_FETCH_LIMIT);
-        console.log(`Fetching details for the top ${jobsToDetail.length} jobs...`);
+        console.log(`[ScrapingBee] Will fetch details for ${jobsToDetail.length} jobs...`);
 
-        // 2. Map to ScrapedJob interface and fetch descriptions for each job URL
+        console.time("scrapingbee_detail_requests_all");
         const scrapedJobs: ScrapedJob[] = await Promise.all(
             jobsToDetail.map(async (job: ExtractedJob, index: number): Promise<ScrapedJob> => {
+                const detailTimerLabel = `scrapingbee_detail_request_${index}`;
+                console.time(detailTimerLabel);
                 let description: string | null = null;
                 const jobUrl = job.url ? `https://hk.jobsdb.com${job.url}` : null;
 
                 if (jobUrl) {
-                    await new Promise(resolve => setTimeout(resolve, 200 + index * 50));
+                    await new Promise(resolve => setTimeout(resolve, 200 + index * 50)); // Keep delay
                     try {
-                        console.log(`Fetching details for: ${jobUrl}`);
+                        const detailParams = {
+                            api_key: apiKey,
+                            url: jobUrl,
+                            render_js: true,
+                            premium_proxy: true,
+                            block_resources: true,
+                            wait_for: 'div[data-automation="jobAdDetails"]',
+                            extract_rules: JSON.stringify({
+                                description: 'div[data-automation="jobAdDetails"]',
+                            }),
+                        };
+                        console.log(`[ScrapingBee Detail ${index}] Fetching: ${jobUrl}`);
+                        // console.log(`[ScrapingBee Detail ${index}] Params:`, detailParams); // Optional: Log full detail params
+
                         const detailResponse = await axios.get('https://app.scrapingbee.com/api/v1/', {
-                            params: {
-                                api_key: apiKey,
-                                url: jobUrl,
-                                render_js: true,
-                                premium_proxy: true,
-                                block_resources: true, // <-- Set to true to potentially speed up text extraction
-                                wait_for: 'div[data-automation="jobAdDetails"]',
-                                extract_rules: JSON.stringify({
-                                    description: 'div[data-automation="jobAdDetails"]',
-                                }),
-                            },
+                            params: detailParams,
                             headers: { 'Accept': 'application/json' }
                         });
+                        console.log(`[ScrapingBee Detail ${index}] Response Status: ${detailResponse.status}`);
                         description = detailResponse.data?.description || 'No description available (Extractor failed).';
+
                     } catch (error: unknown) {
                         const errorDetails = error instanceof Error ? error.message : String(error);
                         // Check for axios specific error response
@@ -139,7 +149,7 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
                 const finalDescription = description as string; 
 
                 // Log the length *after* try/catch/else
-                console.log(`Processed description for: ${jobUrl || 'Unknown URL'} (Length: ${finalDescription.length})`);
+                console.log(`[ScrapingBee Detail ${index}] Processed. Desc length: ${finalDescription.length}`);
 
                 // Construct the final ScrapedJob object
                 return {
@@ -151,8 +161,10 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
                 };
             })
         );
+        console.timeEnd("scrapingbee_detail_requests_all");
 
         console.log(`Finished fetching details. Total jobs with attempted descriptions: ${scrapedJobs.length}`);
+        console.timeEnd("scrapeJobsDB_HK_total");
         return scrapedJobs;
 
     } catch (error: unknown) { // Use unknown type for error
@@ -162,6 +174,7 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
              errorDetails = `AxiosError: ${error.response.data.message}`;
          }
         console.error(`ScrapingBee API request failed: ${errorDetails}`);
+        console.timeEnd("scrapeJobsDB_HK_total"); // Ensure timer ends on error too
         return [];
     }
 }
@@ -169,6 +182,7 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
 
 // --- API Route Handler ---
 export async function POST(request: NextRequest) {
+    console.time("job_analysis_POST_total"); // Time the whole POST request
     // --- Vector DB / RAG Code Removed ---
 
     const currentApiKey = process.env.GEMINI_API_KEY;
@@ -181,17 +195,20 @@ export async function POST(request: NextRequest) {
     let topLocations: StatItem[] = [];
 
     try {
-        // Destructure potential resumeText from the body
+        console.log("[POST Handler] Parsing request body...");
         const { userRoleQuery, resumeText } = await request.json();
 
         if (typeof userRoleQuery !== 'string' || !userRoleQuery.trim()) { return NextResponse.json({ error: 'Invalid input: Missing userRoleQuery.' }, { status: 400 }); }
         // resumeText is optional, so no strict check needed unless you want to enforce it
         const hasResume = typeof resumeText === 'string' && resumeText.trim().length > 0;
-        console.log(`Received analysis request for: "${userRoleQuery}" ${hasResume ? 'WITH resume' : 'without resume'}. Using ScrapingBee.`);
+        console.log(`[POST Handler] Request parsed for: "${userRoleQuery}" ${hasResume ? 'WITH resume' : 'without resume'}.`);
 
         // === Step 1: Execute Web Scraping (Now uses ScrapingBee) ===
+        console.log("[POST Handler] Starting Step 1: Web Scraping...");
+        console.time("step1_scrape_duration");
         scrapedJobResults = await scrapeJobsDB_HK(userRoleQuery); // Calls the new function
-        console.log(`Scraping finished. Found ${scrapedJobResults.length} jobs with fetched descriptions.`);
+        console.timeEnd("step1_scrape_duration");
+        console.log(`[POST Handler] Step 1 complete. ${scrapedJobResults.length} jobs processed.`);
         // Filter for jobs where description fetching was successful (or at least attempted and didn't hard fail)
         const jobsWithDescriptions = scrapedJobResults.filter(j =>
             j.url && j.description && !j.description.startsWith('Failed to fetch description') && j.description !== 'No URL found' && j.description !== 'No description available (Extractor failed).'
@@ -199,7 +216,8 @@ export async function POST(request: NextRequest) {
         console.log(`Found ${jobsWithDescriptions.length} jobs with valid descriptions for AI analysis.`);
 
         // === Step 2: Calculate Statistics (from all scraped jobs) ===
-        // This remains the same, calculated from the full scrape
+        console.log("[POST Handler] Starting Step 2: Calculate Statistics...");
+        console.time("step2_stats_duration");
         if (scrapedJobResults.length > 0) {
             // ... (statistic calculation remains the same) ...
             const companyCounts: { [key: string]: number } = {};
@@ -213,8 +231,12 @@ export async function POST(request: NextRequest) {
             console.log("Top Companies:", topCompanies.map(c=>`${c.name}(${c.count})`));
             console.log("Top Locations:", topLocations.map(l=>`${l.name}(${l.count})`));
         }
+        console.timeEnd("step2_stats_duration");
+        console.log("[POST Handler] Step 2 complete.");
 
         // === Step 3: Prepare Job Context for LLM (No RAG) ===
+        console.log("[POST Handler] Starting Step 3: Prepare LLM Context...");
+        console.time("step3_context_prep_duration");
         // Format all successfully scraped jobs with descriptions
         let allScrapedJobContext = 'No valid job details available for analysis.';
         if (jobsWithDescriptions.length > 0) {
@@ -238,9 +260,14 @@ export async function POST(request: NextRequest) {
             allScrapedJobContext = allScrapedJobContext.substring(0, MAX_CONTEXT_CHARS) + "\\n\\n... (Context Truncated) ...";
             // Alternatively, could select a subset of jobs here instead of hard truncation
         }
+        console.log(`Prepared context length: ${allScrapedJobContext.length} chars.`);
+        console.timeEnd("step3_context_prep_duration");
+        console.log("[POST Handler] Step 3 complete.");
 
 
         // === Step 4: Prepare Prompt for Gemini (Using ALL Scraped Context) ===
+        console.log("[POST Handler] Starting Step 4: Prepare Gemini Prompt...");
+        console.time("step4_prompt_prep_duration");
         console.log(`Context length for LLM: ${allScrapedJobContext.length} chars. Has Resume: ${hasResume}`);
 
         // --- UPDATED Prioritization Instructions (Reduce Job Count) ---
@@ -366,18 +393,20 @@ export async function POST(request: NextRequest) {
 
 
         // === Step 5: Call Gemini API ===
-        console.log(`Sending analysis prompt to Gemini (${GEMINI_MODEL_NAME}) ${hasResume ? 'with resume context' : ''} (Using ScrapingBee data)`);
-        console.time("geminiApiCallLargeContext");
+        console.log("[POST Handler] Starting Step 5: Call Gemini API...");
+        console.time("step5_gemini_call_duration"); // Renamed from geminiApiCallLargeContext for consistency
         const requestBody = { contents: [{ parts: [{ "text": prompt }] }] };
         const geminiApiResponse = await fetch(geminiApiUrlWithKey, {
              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody),
         });
-        console.timeEnd("geminiApiCallLargeContext");
-        console.log(`Gemini API Response Status: ${geminiApiResponse.status} ${geminiApiResponse.statusText}`);
+        console.timeEnd("step5_gemini_call_duration");
+        console.log(`[POST Handler] Step 5 complete. Gemini Status: ${geminiApiResponse.status}`);
         const rawResponseText = await geminiApiResponse.text();
 
 
         // === Step 6: Parse Gemini Response ===
+        console.log("[POST Handler] Starting Step 6: Parse Gemini Response...");
+        console.time("step6_gemini_parse_duration");
         let analysisText = '';
          try {
              if (!geminiApiResponse.ok) {
@@ -405,6 +434,8 @@ export async function POST(request: NextRequest) {
               const message = e instanceof Error ? e.message : 'Failed to process AI response';
               return NextResponse.json({ error: message }, { status: 500 });
          }
+        console.timeEnd("step6_gemini_parse_duration");
+        console.log("[POST Handler] Step 6 complete.");
 
         if (!analysisText) { console.error("Gemini response text empty after processing."); return NextResponse.json({ error: 'Received empty analysis from AI.' }, { status: 500 }); }
 
@@ -547,6 +578,7 @@ export async function POST(request: NextRequest) {
              competitiveLandscapeParsed: hasResume ? !competitiveLandscape.startsWith("Could not parse") : "N/A",
          });
 
+        console.timeEnd("job_analysis_POST_total");
         return NextResponse.json({
             jobListings: allJobLinksForFrontend,
             commonStack: commonStack,
@@ -565,6 +597,7 @@ export async function POST(request: NextRequest) {
         console.error("API Route General Error:", error);
         const message = error instanceof Error ? error.message : String(error);
         const errorMessage = `An internal server error occurred: ${message}`;
+        console.timeEnd("job_analysis_POST_total");
         return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }
