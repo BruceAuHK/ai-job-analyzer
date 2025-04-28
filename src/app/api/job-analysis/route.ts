@@ -14,7 +14,7 @@ if (!GEMINI_API_KEY) {
 }
 
 // --- Helper: Add delay ---
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms)); // Removed unused
 
 // --- Define Interfaces (Optional but Recommended) ---
 interface ScrapedJob {
@@ -31,24 +31,24 @@ interface StatItem { name: string; count: number; } // Reuse or define globally
 async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
     let browser: Browser | null = null;
     const allJobsData: ScrapedJob[] = [];
-    const jobsDbBaseUrl = 'https://hk.jobsdb.com';
-    const jobsDbSearchUrl = 'https://hk.jobsdb.com/hk/en/Search/FindJobs';
-    const maxPagesToScrape = 3; // Limit pagination pages
-    const detailLimitPerPageScrape = 100; // Limit description scraping
+    // const jobsDbBaseUrl = 'https://hk.jobsdb.com'; // Removed unused
+    // const jobsDbSearchUrl = 'https://hk.jobsdb.com/hk/en/Search/FindJobs'; // Removed unused
+    // const maxPagesToScrape = 3; // Limit pagination pages - Removed unused
+    // const detailLimitPerPageScrape = 100; // Limit description scraping - Removed unused
 
-    // Selectors (Verify these regularly!)
-    const KEYWORDS_INPUT_SELECTOR = '#keywords-input';
-    const SEARCH_BUTTON_SELECTOR = 'button[data-automation="searchButton"]';
-    const JOB_CARD_SELECTOR = 'article[data-automation="normalJob"]';
-    const JOB_TITLE_SELECTOR_LIST = '[data-automation="jobTitle"]';
-    const JOB_COMPANY_SELECTOR_LIST = '[data-automation="jobCompany"]';
-    const JOB_LOCATION_SELECTOR_LIST = '[data-automation="jobLocation"]';
-    const JOB_LINK_SELECTOR_LIST = 'a[data-automation="jobTitle"], a[data-automation="job-list-item-link-overlay"]';
+    // Selectors (Verify these regularly!) - Removed unused
+    // const KEYWORDS_INPUT_SELECTOR = '#keywords-input';
+    // const SEARCH_BUTTON_SELECTOR = 'button[data-automation="searchButton"]';
+    // const JOB_CARD_SELECTOR = 'article[data-automation="normalJob"]';
+    // const JOB_TITLE_SELECTOR_LIST = '[data-automation="jobTitle"]';
+    // const JOB_COMPANY_SELECTOR_LIST = '[data-automation="jobCompany"]';
+    // const JOB_LOCATION_SELECTOR_LIST = '[data-automation="jobLocation"]';
+    // const JOB_LINK_SELECTOR_LIST = 'a[data-automation="jobTitle"], a[data-automation="job-list-item-link-overlay"]';
     // Use a more general selector for description as layout might vary
-    const JOB_DESCRIPTION_SELECTOR_DETAIL = 'div[data-automation="jobAdDetails"], #jobDescription'; // Added fallback ID
-    const NEXT_PAGE_SELECTOR = 'a[aria-label="Next"]:not([aria-hidden="true"])';
+    // const JOB_DESCRIPTION_SELECTOR_DETAIL = 'div[data-automation="jobAdDetails"], #jobDescription'; // Added fallback ID
+    // const NEXT_PAGE_SELECTOR = 'a[aria-label="Next"]:not([aria-hidden="true"])';
 
-    let currentPage = 1;
+    // let currentPage = 1; // Removed unused
 
     try {
         console.log(`Launching browser for JobsDB scraping query: ${query}`);
