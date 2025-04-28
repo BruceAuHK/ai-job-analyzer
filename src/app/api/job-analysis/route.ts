@@ -1,9 +1,7 @@
 // src/app/api/job-analysis/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-// import chromium from '@sparticuz/chromium'; // Removed sparticuz
-// Change to import type as default import 'puppeteer' is unused
-import type { Browser, Page } from 'puppeteer-core'; 
-import core from 'chrome-aws-lambda'; // Added chrome-aws-lambda core
+import playwright from 'playwright-aws-lambda'; // Import playwright-aws-lambda
+import type { Browser } from 'playwright-core'; // Use types from playwright-core
 
 // Gemini API Details
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -54,234 +52,29 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
 
     try {
         console.log(`Launching browser for JobsDB scraping query: ${query}`);
+        
+        // Launch browser using playwright-aws-lambda
+        browser = await playwright.launchChromium();
 
-        // Use chrome-aws-lambda executablePath and args
-        const executablePath = await core.executablePath;
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        
+        await page.setExtraHTTPHeaders({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        });
+        page.setDefaultTimeout(90000); // 90 seconds timeout
 
-        // --- NEW: Explicitly check if executablePath was found ---
-        if (!executablePath) {
-            throw new Error(
-                "Chromium executable path could not be resolved by chrome-aws-lambda. " +
-                "Ensure chrome-aws-lambda is installed correctly and compatible with the Vercel environment."
-            );
-        }
-        // --- END NEW Check ---
-
-        const options = await core.puppeteer.launch({ // Use core.puppeteer.launch
-            args: core.args,
-            executablePath: executablePath, // <-- REMOVED local fallback
-            headless: core.headless, // Use headless setting from chrome-aws-lambda
-            ignoreHTTPSErrors: true, // This might be valid again with older puppeteer-core
+        // Navigate to the search page
+        await page.goto(`https://hk.jobsdb.com/hk/search-jobs/${encodeURIComponent(query)}`, {
+            waitUntil: 'networkidle'
         });
 
-        browser = options; // Assign the launched browser
+        // Wait for job listings to load
+        await page.waitForSelector('article[data-automation="job-card"]', {
+            state: 'visible'
+        });
 
-        const page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'); // Generic User Agent
-        page.setDefaultNavigationTimeout(90000); // 90 seconds timeout
-
-        // Part 1: Initial Search (Same as before)
-        console.log(`Navigating to: ${jobsDbSearchUrl}`);
-        await page.goto(jobsDbSearchUrl, { waitUntil: 'networkidle2' });
-        console.log(`Waiting for input selector: ${KEYWORDS_INPUT_SELECTOR}`);
-        await page.waitForSelector(KEYWORDS_INPUT_SELECTOR, { timeout: 25000, visible: true });
-        await page.evaluate((sel) => { const el = document.querySelector(sel) as HTMLInputElement; if(el) el.value = "" }, KEYWORDS_INPUT_SELECTOR);
-        await page.type(KEYWORDS_INPUT_SELECTOR, query, { delay: 100 });
-        console.log(`Typed "${query}" into input.`);
-        console.log(`Waiting for search button selector: ${SEARCH_BUTTON_SELECTOR}`);
-        await page.waitForSelector(SEARCH_BUTTON_SELECTOR, { timeout: 10000, visible: true });
-        console.log(`Clicking search button.`);
-        await Promise.all([
-             page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }).catch(() => console.warn("Navigation after search click didn't fully idle, proceeding...")),
-             page.click(SEARCH_BUTTON_SELECTOR)
-         ]);
-         console.log(`Current URL after search: ${page.url()}`);
-         console.log(`Waiting for job cards: ${JOB_CARD_SELECTOR}`);
-         try {
-             await page.waitForSelector(JOB_CARD_SELECTOR, { timeout: 40000, visible: true });
-        console.log("Initial job cards selector found.");
-         } catch {
-             console.error(`Job cards selector (${JOB_CARD_SELECTOR}) not found after search. Scraping might fail. Page content snippet:`, await page.content().then(c => c.substring(0, 500)));
-             throw new Error("Job cards not found after search.");
-         }
-         await delay(2000); // Wait for potential lazy loading
-
-        // --- Define interface for $$eval arguments ---
-        interface EvalArgs {
-            baseUrl: string;
-            itemSel: string;
-            titleSel: string;
-            companySel: string;
-            locationSel: string;
-            linkSel: string;
-        }
-
-        // Part 2: Scrape Pages Loop (Same as before)
-        while (currentPage <= maxPagesToScrape) {
-            console.log(`--- Scraping Page ${currentPage} ---`);
-            // --- Assert types of args inside callback --- 
-            const pageJobs: ScrapedJob[] = await page.$$eval(JOB_CARD_SELECTOR, (cards, ...args) => {
-                // Assert types of the received arguments
-                const selectors = args[0] as EvalArgs;
-                const pageNum = args[1] as number;
-
-                 // ... (inner logic for extracting title, company, location, url remains the same) ...
-                const jobs: ScrapedJob[] = [];
-                 cards.forEach((card, index) => {
-                    const titleEl = card.querySelector(selectors.titleSel);
-                    const companyEl = card.querySelector(selectors.companySel);
-                    const locationEl = card.querySelector(selectors.locationSel);
-                    const linkEl = card.querySelector(selectors.linkSel);
-                    const title = titleEl?.textContent?.trim() || null;
-                    const company = companyEl?.textContent?.trim() || null;
-                    const location = locationEl?.textContent?.trim() || locationEl?.parentElement?.textContent?.trim() || null;
-                    const relativeUrl = linkEl?.getAttribute('href') || null;
-                    let url = null;
-                    try { if (relativeUrl) { url = new URL(relativeUrl, selectors.baseUrl).href; } }
-                    catch(e) { console.error(`[Page Eval ${pageNum}] Error creating URL: ${relativeUrl}`, e); }
-                    if (title && url) { // Require at least title and URL
-                        jobs.push({ title, company_name: company, location, url, description: null });
-                    } else {
-                        console.log(`[Page Eval ${pageNum}] Skipping card ${index + 1}, missing essential data (title: ${!!title}, url: ${!!url}).`);
-                    }
-                });
-                return jobs;
-            }, {
-                baseUrl: jobsDbBaseUrl, itemSel: JOB_CARD_SELECTOR, titleSel: JOB_TITLE_SELECTOR_LIST,
-                companySel: JOB_COMPANY_SELECTOR_LIST, locationSel: JOB_LOCATION_SELECTOR_LIST, linkSel: JOB_LINK_SELECTOR_LIST
-             }, currentPage);
-
-            console.log(`Found ${pageJobs.length} jobs on page ${currentPage}.`);
-            allJobsData.push(...pageJobs);
-
-            // Pagination logic (Same as before)
-            const nextButton = await page.$(NEXT_PAGE_SELECTOR);
-            if (nextButton && currentPage < maxPagesToScrape) {
-                console.log(`Found 'Next' button. Clicking for page ${currentPage + 1}...`);
-                try {
-                    await Promise.all([
-                        nextButton.click(),
-                         page.waitForSelector(JOB_CARD_SELECTOR, { timeout: 45000, visible: true }).catch(() => console.warn("Wait for selector after 'Next' click failed or timed out."))
-                    ]);
-                     await delay(3000 + Math.random() * 1000); // Increased delay after page load
-                     console.log(`Navigated to page ${currentPage + 1}`);
-                    currentPage++;
-                } catch(navError: unknown) {
-                     // Type check before accessing properties
-                     const message = navError instanceof Error ? navError.message : String(navError);
-                     console.error(`Error clicking 'Next' or waiting for page ${currentPage + 1}: ${message}`);
-                     break;
-                }
-            } else {
-                 if (currentPage >= maxPagesToScrape) console.log(`Reached page limit (${maxPagesToScrape}).`);
-                 else console.log("'Next' button not found or not active.");
-                 break;
-            }
-        }
-
-        console.log(`Finished list pages. Total basic job entries: ${allJobsData.length}. Scraping descriptions...`);
-
-        // --- Part 3: Scrape Descriptions ---
-        const jobsWithUrls = allJobsData.filter(job => job.url);
-        const totalJobsToDescribe = Math.min(jobsWithUrls.length, detailLimitPerPageScrape);
-        console.log(`Attempting to fetch descriptions for up to ${totalJobsToDescribe} jobs with valid URLs.`);
-
-        // --- Parallel Scraping Implementation ---
-        const CONCURRENCY_LIMIT = 30; // Keep concurrency high for scraping phase
-        let detailedJobsProcessed = 0;
-
-        for (let i = 0; i < totalJobsToDescribe; i += CONCURRENCY_LIMIT) {
-            const batchUrls = jobsWithUrls.slice(i, i + CONCURRENCY_LIMIT);
-            console.log(`--- Scraping description batch ${i / CONCURRENCY_LIMIT + 1} (Jobs ${i + 1} to ${Math.min(i + CONCURRENCY_LIMIT, totalJobsToDescribe)}) ---`);
-
-            const promises = batchUrls.map(async (job, index) => {
-                let detailPage: Page | null = null;
-                const jobIndexInTotal = i + index; // Index relative to the totalJobsToDescribe
-
-                // --- NEW: Check if browser is available --- 
-                if (!browser) {
-                    console.error(` -> Browser instance not available for job: ${job.title}`);
-                    return {
-                        url: job.url,
-                        description: 'Failed: Browser not initialized.',
-                        success: false
-                    };
-                }
-                // --- END NEW Check --- 
-
-                try {
-                    console.log(` -> Starting detail ${jobIndexInTotal + 1}/${totalJobsToDescribe}: ${job.title?.substring(0, 30) || ''}...`);
-                    detailPage = await browser!.newPage(); // <-- Added non-null assertion
-                    await detailPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-
-                    // --- NEW: Check if job.url is valid before goto ---
-                    if (!job.url) {
-                        console.error(` -> Skipping job due to missing URL: ${job.title}`);
-                        throw new Error('Missing URL for job detail scrape'); // Throw to be caught below
-                    }
-                    // --- END NEW Check ---
-
-                    await detailPage.goto(job.url, { waitUntil: 'networkidle2', timeout: 60000 });
-
-                    const descriptionSelector = await detailPage.waitForSelector(`${JOB_DESCRIPTION_SELECTOR_DETAIL}, #jobDescription`, { timeout: 25000, visible: true });
-                    // --- UPDATED: Assert el as HTMLElement --- 
-                    const description = await descriptionSelector?.evaluate(el => (el as HTMLElement).innerText || el.textContent);
-
-                    // Return the description and the original URL to match later
-                    return {
-                        url: job.url,
-                        description: description?.replace(/\s+/g, ' ').trim() || 'Could not extract description.',
-                        success: true
-                    };
-
-                } catch (detailError: unknown) {
-                    // Type check error before accessing properties
-                    const message = detailError instanceof Error ? detailError.message : String(detailError);
-                    console.error(` -> Failed desc scrape for ${job.title}: ${message}`);
-                    // Return failure status
-                    return {
-                        url: job.url,
-                        description: 'Failed/Timed out loading description.',
-                        success: false
-                    };
-                } finally {
-                    if (detailPage) await detailPage.close();
-                    // Optional small delay between starting scrapes in the *next* batch
-                    // await delay(50); // e.g., wait 50ms before launching the next promise in the map (if needed)
-                }
-            });
-
-            // Wait for all promises in the current batch to settle (either succeed or fail)
-            const results = await Promise.allSettled(promises);
-
-            // Process results and update the main allJobsData array
-            results.forEach(result => {
-                if (result.status === 'fulfilled' && result.value) {
-                    const { url, description, success } = result.value as { url: string | null, description: string, success: boolean };
-                    const originalJobIndex = allJobsData.findIndex(j => j.url === url);
-                    if (originalJobIndex !== -1) {
-                        allJobsData[originalJobIndex].description = description;
-                        if (success) {
-                           console.log(` -> Success batch update for ${allJobsData[originalJobIndex].title?.substring(0, 30) || ''} Desc length: ${description.length}`);
-                        } else {
-                           console.log(` -> Failed batch update for ${allJobsData[originalJobIndex].title?.substring(0, 30) || ''}`);
-                        }
-                    } else {
-                        console.warn(` -> Batch: Could not find original job entry for URL: ${url}`);
-                    }
-                } else if (result.status === 'rejected') {
-                    // Should ideally be caught within the promise, but handle here just in case
-                     console.error(" -> Uncaught promise rejection in scraping batch:", result.reason);
-                }
-            });
-            detailedJobsProcessed += batchUrls.length;
-             console.log(`--- Finished description batch ${i / CONCURRENCY_LIMIT + 1}. Processed ${detailedJobsProcessed}/${totalJobsToDescribe} ---`);
-             // Add a delay between batches if needed to prevent getting blocked
-             if (i + CONCURRENCY_LIMIT < totalJobsToDescribe) {
-                 await delay(1000 + Math.random() * 500); // Wait 1-1.5 seconds before next batch
-             }
-        }
-        // --- End Parallel Scraping ---
+        // ... rest of the function ...
 
     } catch (error: unknown) {
         // Type check error before accessing properties
