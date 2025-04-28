@@ -1,6 +1,7 @@
 // src/app/api/job-analysis/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import playwright from 'playwright-aws-lambda'; // Import playwright-aws-lambda
+// import playwright from 'playwright-aws-lambda'; // OLD ES Module Import
+const playwright = require('playwright-aws-lambda'); // NEW CommonJS Import
 import type { Browser } from 'playwright-core'; // Use types from playwright-core
 
 // Gemini API Details
@@ -55,6 +56,10 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
         
         // Launch browser using playwright-aws-lambda
         browser = await playwright.launchChromium();
+
+        if (!browser) {
+            throw new Error("Failed to launch browser instance.");
+        }
 
         const context = await browser.newContext();
         const page = await context.newPage();
