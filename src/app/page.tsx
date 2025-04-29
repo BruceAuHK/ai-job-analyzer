@@ -802,12 +802,14 @@ export default function Home() {
                        {displayMode === 'initial' && `All Scraped Job Listings (${(analysisResult.jobListings || []).length} found)`}
                      </h2>
                      {(displayMode === 'filtered' || displayMode === 'similar') && (
-                       <button onClick={handleClearFilter} className={`${styles.analyzeButtonSmall} ${styles.jobActionButton}`} title="Show all initial jobs">
+                       <button onClick={() => { /* handleClearFilter() */ }} className={`${styles.analyzeButtonSmall} ${styles.jobActionButton}`} title="Show all initial jobs">
                          Show All Jobs
                        </button>
                      )}
                    </div>
 
+                   {/* --- Filter Input (Commented Out) --- */}
+                   {/*
                    {displayMode !== 'similar' && (
                      <div className={styles.jobListFilterContainer}>
                        <input
@@ -824,10 +826,13 @@ export default function Home() {
                        </button>
                      </div>
                    )}
+                   */}
+                   {/* --- End Filter Input --- */}
+
                  </div>
-                 {/* Loading/Error for Filter/Similar */}
-                 {loadingFilter && <div className={styles.sectionLoadingIndicator}>Filtering jobs...</div>}
-                 {errorFilter && <div className={styles.sectionErrorBox} role="alert">{errorFilter}</div>}
+                 {/* Loading/Error for Filter/Similar (Comment out Filter parts) */}
+                 {/* {loadingFilter && <div className={styles.sectionLoadingIndicator}>Filtering jobs...</div>} */}
+                 {/* {errorFilter && <div className={styles.sectionErrorBox} role="alert">{errorFilter}</div>} */}
                  {loadingSimilar && <div className={styles.sectionLoadingIndicator}>Finding similar jobs...</div>}
                  {errorSimilar && <div className={styles.sectionErrorBox} role="alert">{errorSimilar}</div>}
 
