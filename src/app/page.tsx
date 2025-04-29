@@ -116,10 +116,10 @@ export default function Home() {
   const [loadingStepMessage, setLoadingStepMessage] = useState('');
 
   // **NEW** Semantic Filtering
-  const [filterQuery, setFilterQuery] = useState('');
-  const [loadingFilter, setLoadingFilter] = useState(false);
-  const [errorFilter, setErrorFilter] = useState<string | null>(null);
-  const [filteredJobIds, setFilteredJobIds] = useState<string[] | null>(null); // Stores IDs from filter API
+  // const [filterQuery, setFilterQuery] = useState(''); // <-- Comment out or remove
+  // const [loadingFilter, setLoadingFilter] = useState(false); // <-- Comment out or remove
+  // const [errorFilter, setErrorFilter] = useState<string | null>(null); // <-- REMOVE THIS LINE
+  // const [filteredJobIds, setFilteredJobIds] = useState<string[] | null>(null); // Stores IDs from filter API // <-- Comment out or remove
 
   // **NEW** Similar Jobs
   const [loadingSimilar, setLoadingSimilar] = useState(false);
@@ -139,13 +139,10 @@ export default function Home() {
   // Determine which list of jobs to display based on current state
   const jobsToDisplay = (() => {
       if (similarJobsResult) return similarJobsResult;
-      if (filteredJobIds && analysisResult) {
-          return (analysisResult.jobListings || []).filter(job => filteredJobIds.includes(job.url));
-      }
       if (analysisResult) return analysisResult.jobListings || [];
       return [];
   })();
-  const displayMode: 'initial' | 'filtered' | 'similar' = similarJobsResult ? 'similar' : (filteredJobIds ? 'filtered' : 'initial');
+  const displayMode: 'initial' | 'similar' = similarJobsResult ? 'similar' : 'initial';
   const hasResumeProvided = resumeText.trim().length > 0; // More explicit check
 
   // === Chart Configuration ===
@@ -318,9 +315,8 @@ export default function Home() {
     // setResumeText(''); // Keep resume text if entered
     setResumeAnalysisResult(null); setSkillGapResult(null); setStrategyTips(null);
     setErrorResume(null); setErrorSkillGap(null); setErrorStrategy(null);
-    setErrorFilter(null); setErrorSimilar(null);
-    setFilteredJobIds(null); setSimilarJobsResult(null); setSimilarJobsSourceTitle(null);
-    setFilterQuery('');
+    setErrorSimilar(null);
+    setSimilarJobsResult(null); setSimilarJobsSourceTitle(null);
     setLoading(true);
 
     try {
@@ -409,43 +405,9 @@ export default function Home() {
   }, [userRoleQuery, analysisResult]);
 
   // **NEW** Semantic Filter Handler
-  const handleFilterJobs = useCallback(async () => {
-      if (!filterQuery.trim()) { setErrorFilter('Please enter filter text.'); return; }
-      if (!analysisResult) { setErrorFilter('Run market analysis first.'); return; } // Need original list later
-      setLoadingFilter(true); setErrorFilter(null); setFilteredJobIds(null);
-      setSimilarJobsResult(null); setSimilarJobsSourceTitle(null); // Clear similar results when filtering
-
-      try {
-          const response = await fetch('/api/filter-jobs', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ filterQuery: filterQuery.trim() }),
-          });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || `HTTP error! Status: ${response.status}`);
-          setFilteredJobIds(data.matchingJobIds || []); // Store the returned IDs
-      } catch (err: unknown) {
-          console.error("Filter jobs fetch error:", err);
-          // Type check before accessing properties
-          const message = err instanceof Error ? err.message : 'Error applying filter.';
-          setErrorFilter(message);
-          setFilteredJobIds(null);
-      } finally {
-          setLoadingFilter(false);
-      }
-  }, [filterQuery, analysisResult]);
-
-  // **NEW** Clear Filter Handler
-  const handleClearFilter = () => {
-    setFilterQuery('');
-    setFilteredJobIds(null);
-    setErrorFilter(null);
-    setLoadingFilter(false);
-    // Also clear similar jobs if they were displayed
-    setSimilarJobsResult(null);
-    setSimilarJobsSourceTitle(null);
-    setErrorSimilar(null);
-    setLoadingSimilar(false);
-  };
+  // const handleFilterJobs = useCallback(async () => {
+  //     // ... function body ...
+  // }, [filterQuery, analysisResult]);
 
   // **NEW** Find Similar Jobs Handler
   const handleFindSimilarJobs = useCallback(async (sourceJob: JobListing) => {
@@ -453,8 +415,7 @@ export default function Home() {
           setErrorSimilar('Invalid job selected.'); return;
       }
       setLoadingSimilar(true); setErrorSimilar(null); setSimilarJobsResult(null); setSimilarJobsSourceTitle(null);
-      setFilteredJobIds(null); // Clear filters when finding similar
-      setFilterQuery('');
+      setLoading(true);
 
       try {
           const response = await fetch('/api/similar-jobs', {
@@ -522,7 +483,6 @@ export default function Home() {
         }
     };
 
-  const handleFilterKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => { if (event.key === 'Enter' && !loadingFilter) { handleFilterJobs(); } };
   const canAnalyzeExtras = !!analysisResult?.commonStack && !analysisResult.commonStack.toLowerCase().includes('could not parse');
 
   // *** Update Export Handler ***
@@ -798,13 +758,20 @@ export default function Home() {
                    <div className={styles.jobListTitleContainer}>
                      <h2 className={styles.sectionTitle} style={{ borderBottom: 'none', marginBottom: 0 }}> {/* Remove border/margin from h2 */}
                        {displayMode === 'similar' && `Similar Jobs to "${similarJobsSourceTitle || 'Selected Job'}"`}
-                       {displayMode === 'filtered' && `Filtered Job Listings (${jobsToDisplay.length} matching)`}
                        {displayMode === 'initial' && `All Scraped Job Listings (${(analysisResult.jobListings || []).length} found)`}
                      </h2>
-                     {(displayMode === 'filtered' || displayMode === 'similar') && (
-                       <button onClick={() => { /* handleClearFilter() */ }} className={`${styles.analyzeButtonSmall} ${styles.jobActionButton}`} title="Show all initial jobs">
-                         Show All Jobs
-                       </button>
+                     {displayMode === 'similar' && (
+                       <button onClick={() => { 
+                           // Clear similar jobs state, not filter state
+                           setSimilarJobsResult(null); 
+                           setSimilarJobsSourceTitle(null);
+                           setErrorSimilar(null);
+                           setLoadingSimilar(false);
+                        }} 
+                        className={`${styles.analyzeButtonSmall} ${styles.jobActionButton}`} 
+                        title="Show all initial jobs">
+                            Show All Jobs
+                        </button>
                      )}
                    </div>
 
@@ -865,7 +832,7 @@ export default function Home() {
                                     {/* Find Similar Button */}
                                      <button
                                          onClick={() => handleFindSimilarJobs(job)}
-                                         disabled={loadingSimilar || loadingFilter || !job.url || job.url === '#'}
+                                         disabled={loadingSimilar || !job.url || job.url === '#'}
                                          className={`${styles.analyzeButtonSmall} ${styles.jobActionButton}`}
                                          title={`Find jobs similar to ${jobTitle}`}
                                      >
@@ -912,10 +879,9 @@ export default function Home() {
                 ) : (
                      <p className={styles.noResultsText}>
                           {/* Adjusted no results text */}
-                          {!loadingFilter && !loadingSimilar &&
-                            (displayMode === 'filtered' ? 'No jobs match your filter.' :
+                          {!loadingSimilar &&
                             (displayMode === 'similar' ? 'Could not find similar jobs.' :
-                            'No jobs found initially.'))
+                            'No jobs found initially.')
                           }
                        </p>
                 )}

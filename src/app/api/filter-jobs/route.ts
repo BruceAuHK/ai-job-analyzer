@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // import { getVectorDbCollection, generateEmbedding } from '@/utils/vectorDb'; // <-- Comment out
 // import { IncludeEnum } from 'chromadb'; // <-- Comment out
 
-const FILTER_RESULTS_LIMIT = 50; // How many matching job IDs to return (remains for reference)
+// const FILTER_RESULTS_LIMIT = 50; // How many matching job IDs to return (remains for reference)
 
 export async function POST(request: NextRequest) {
     try {
