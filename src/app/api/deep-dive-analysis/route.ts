@@ -13,25 +13,41 @@ if (!GEMINI_API_KEY) {
   console.error("Startup Warning: Missing GEMINI_API_KEY environment variable for deep-dive-analysis route.");
 }
 
-// Define a basic interface for the expected response
+// --- Interfaces --- (Copied from job-analysis/route.ts)
+interface ScrapedJob {
+    title: string | null;
+    company_name: string | null;
+    location: string | null;
+    url: string | null;
+    description: string | null;
+}
+interface StatItem { name: string; count: number; }
+
+// --- Define a basic interface for the expected Gemini JSON response --- (Added based on usage)
 interface GeminiResponse {
     candidates?: {
         content?: { parts?: { text?: string }[] };
         finishReason?: string;
-        // safetyRatings?: any[]; // Optional: Add if you need safetyRatings
-        // citationMetadata?: any; // Optional: Add if you need citationMetadata
     }[];
     error?: { message?: string };
     promptFeedback?: { blockReason?: string };
 }
 
-// --- Keep Interfaces, Gemini Constants, Helpers (delay, sanitizeQueryToFilename) ---
-interface ScrapedJob { /* ... */ }
-interface StatItem { /* ... */ }
-const delay = (ms: number) => { /* ... */ };
-function sanitizeQueryToFilename(query: string): string | null { /* ... */ }
+// --- Helpers --- (Copied from job-analysis/route.ts)
+const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
-// --- Web Scraping Function (Keep the function definition, but we won't call it) ---
+function sanitizeQueryToFilename(query: string): string | null {
+    if (!query || typeof query !== 'string') return null;
+    const sanitized = query
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9\s\-_]/g, '') // Allow letters, numbers, space, hyphen, UNDERSCORE
+        .replace(/\s+/g, '_');          // Replace spaces with underscores
+    if (!sanitized) return null;        // Return null if query is empty after sanitize
+    return `${sanitized}.json`;
+}
+
+// --- Web Scraping Function (Keep commented out or remove if definitely unused) ---
 // export async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> { /* ... */ }
 
 export async function POST(request: NextRequest) {
@@ -139,13 +155,10 @@ export async function POST(request: NextRequest) {
            Tasks:
            Based *only* on the provided context...
            1.  **Common Tech Stack:**
-               ${/* ... task details ... */}
            2.  **Suggested Project Ideas:**
-                ${/* ... task details ... */}
            3.  **Job Prioritization:**
                ${prioritizationInstruction}
            4.  **Experience Level Summary:**
-                ${/* ... task details ... */}
            5.  **Overall Market Insights:**
                ${marketInsightsInstruction}
            6.  **Detailed Market Trends & Insights:**
@@ -170,28 +183,39 @@ export async function POST(request: NextRequest) {
         });
          console.timeEnd("geminiApiCallLargeContext");
 
+        // Always check if the fetch itself was successful
         if (!geminiApiResponse.ok) {
-             console.error("Deep Dive API Error Response (JSON):", geminiApiResponse);
-             const errorDetails = geminiApiResponse.error?.message || `HTTP error! status: ${geminiApiResponse.status}`;
-             return NextResponse.json({ error: `Failed to get deep dive analysis: ${errorDetails}` }, { status: geminiApiResponse.status });
+            const errorText = await geminiApiResponse.text(); // Read error text
+            console.error(`Deep Dive API HTTP Error (${geminiApiResponse.status}):`, errorText);
+            const errorDetails = `HTTP error! status: ${geminiApiResponse.status}. ${errorText.substring(0, 100)}`; // Add snippet of error
+            return NextResponse.json({ error: `Failed to get deep dive analysis: ${errorDetails}` }, { status: geminiApiResponse.status });
         }
 
-         // Check for safety blocks or other API-level errors reported in JSON
-         const blockReason = geminiApiResponse.promptFeedback?.blockReason;
-         if (blockReason) {
-             console.error(`Gemini request blocked by safety settings: ${blockReason}`);
-             return NextResponse.json({ error: `Request blocked by safety settings: ${blockReason}` }, { status: 400 });
+        // Try parsing the JSON body
+        let geminiData: GeminiResponse;
+        try {
+            geminiData = await geminiApiResponse.json() as GeminiResponse;
+        } catch (parseError: any) {
+             console.error("Deep Dive API Error: Failed to parse JSON response:", parseError);
+             return NextResponse.json({ error: 'Failed to parse AI response.' }, { status: 500 });
+        }
+
+        // Check for safety blocks or other API-level errors reported in JSON
+        const blockReason = geminiData.promptFeedback?.blockReason;
+        if (blockReason) {
+            console.error(`Gemini request blocked by safety settings: ${blockReason}`);
+            return NextResponse.json({ error: `Request blocked by safety settings: ${blockReason}` }, { status: 400 });
+        }
+        const finishReason = geminiData.candidates?.[0]?.finishReason;
+         if (finishReason && !['STOP', 'MAX_TOKENS'].includes(finishReason)) {
+             console.error(`Gemini generation finished unexpectedly: ${finishReason}`);
+             // Potentially return partial data if available, or just error
+             return NextResponse.json({ error: `AI generation failed: ${finishReason}` }, { status: 500 });
          }
-         const finishReason = geminiApiResponse.candidates?.[0]?.finishReason;
-          if (finishReason && !['STOP', 'MAX_TOKENS'].includes(finishReason)) {
-              console.error(`Gemini generation finished unexpectedly: ${finishReason}`);
-              // Potentially return partial data if available, or just error
-              return NextResponse.json({ error: `AI generation failed: ${finishReason}` }, { status: 500 });
-          }
 
         let analysisText = '';
          try {
-             analysisText = geminiApiResponse.candidates?.[0]?.content?.parts?.[0]?.text || '';
+             analysisText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
          } catch { /* Catch block requires no variable if error object isn't used */ }
 
         if (!analysisText) {
