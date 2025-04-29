@@ -15,7 +15,7 @@ if (!GEMINI_API_KEY) {
 }
 
 // --- Helper: Add delay ---
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- Define Interfaces (Optional but Recommended) ---
 interface ScrapedJob {
@@ -311,8 +311,8 @@ export async function POST(request: NextRequest) {
     let topLocations: StatItem[] = [];
 
     try {
-        // Receive isDemoMode from frontend
-        const { userRoleQuery, resumeText, isDemoMode } = await request.json();
+        // Receive userRoleQuery and resumeText (isDemoMode not needed for Vercel demo)
+        const { userRoleQuery, resumeText } = await request.json();
 
         if (typeof userRoleQuery !== 'string' || !userRoleQuery.trim()) { return NextResponse.json({ error: 'Invalid input: Missing userRoleQuery.' }, { status: 400 }); }
         // Mode is now implicitly Demo Mode for Vercel deployment
@@ -339,8 +339,8 @@ export async function POST(request: NextRequest) {
                 const fileContent = await fs.readFile(filepath, 'utf-8');
                 scrapedJobResults = JSON.parse(fileContent) as ScrapedJob[];
                 console.log(`Demo Mode: Successfully read and parsed ${scrapedJobResults.length} jobs from ${filename}.`);
-            } catch (fileError: any) {
-                if (fileError.code === 'ENOENT') {
+            } catch (fileError: unknown) {
+                if ((fileError as NodeJS.ErrnoException).code === 'ENOENT') {
                     console.error(`Demo Mode Error: File not found at path: ${filepath}`);
                     return NextResponse.json({ error: `Demo data not found for query: ${userRoleQuery}. Please select another.` }, { status: 404 });
                 } else {

@@ -34,7 +34,7 @@ interface GeminiResponse {
 }
 
 // --- Helpers --- (Copied from job-analysis/route.ts)
-const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+// const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms)); // <-- REMOVE this line if present
 
 function sanitizeQueryToFilename(query: string): string | null {
     if (!query || typeof query !== 'string') return null;
@@ -85,8 +85,8 @@ export async function POST(request: NextRequest) {
             const fileContent = await fs.readFile(filepath, 'utf-8');
             scrapedJobResults = JSON.parse(fileContent) as ScrapedJob[];
             console.log(`Successfully loaded ${scrapedJobResults.length} job entries from ${filename}`);
-        } catch (error: any) {
-             if (error.code === 'ENOENT') {
+        } catch (error: unknown) {
+             if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
                 console.error(`Pre-scraped data file not found for query "${userRoleQuery}" at ${filepath}`);
                 return NextResponse.json({ error: `Analysis data for "${userRoleQuery}" is not available.` }, { status: 404 });
              } else {
@@ -188,14 +188,14 @@ export async function POST(request: NextRequest) {
             const errorText = await geminiApiResponse.text(); // Read error text
             console.error(`Deep Dive API HTTP Error (${geminiApiResponse.status}):`, errorText);
             const errorDetails = `HTTP error! status: ${geminiApiResponse.status}. ${errorText.substring(0, 100)}`; // Add snippet of error
-            return NextResponse.json({ error: `Failed to get deep dive analysis: ${errorDetails}` }, { status: geminiApiResponse.status });
+             return NextResponse.json({ error: `Failed to get deep dive analysis: ${errorDetails}` }, { status: geminiApiResponse.status });
         }
 
         // Try parsing the JSON body
         let geminiData: GeminiResponse;
         try {
             geminiData = await geminiApiResponse.json() as GeminiResponse;
-        } catch (parseError: any) {
+        } catch (parseError: unknown) {
              console.error("Deep Dive API Error: Failed to parse JSON response:", parseError);
              return NextResponse.json({ error: 'Failed to parse AI response.' }, { status: 500 });
         }
@@ -226,10 +226,27 @@ export async function POST(request: NextRequest) {
         // Clean up the start if Gemini repeats the heading
         analysisText = analysisText.replace(/^\s*--- DEEP DIVE ANALYSIS ---\s*/i, '').trim();
 
-        // === Step 7: Return Combined Results (Remains the same) ===
-        const allJobLinksForFrontend = scrapedJobResults.map(job => ({ /* ... */ }));
-         console.log("Data being returned to frontend:", { /* ... */ });
+        // === Step 7: Return Combined Results ===
+        // Map results for frontend display (using the 'job' parameter)
+        const allJobLinksForFrontend = scrapedJobResults.map(job => ({
+            title: job.title || 'Job Title Unavailable',
+            url: job.url || '#',
+            snippet: job.description
+                ? job.description.substring(0, 150) + '...'
+                : `${job.company_name || ''} - ${job.location || ''}`.substring(0, 150),
+            description: job.description || 'No description available.',
+            company_name: job.company_name || undefined,
+            location: job.location || undefined
+        }));
+
+        console.log("Data being returned to frontend (Deep Dive):", {
+            deepDiveAnalysisLength: analysisText.length,
+            jobListingsCount: allJobLinksForFrontend.length // Add count for log
+        });
+
         return NextResponse.json({
+            // Include job listings if frontend expects them from this route too
+            jobListings: allJobLinksForFrontend,
             deepDiveAnalysis: analysisText,
             analysisDisclaimer: `Note: Analysis based on pre-saved data for "${userRoleQuery}". Stats from ${scrapedJobResults.length} jobs. AI analysis used ${jobsWithContent.length} full descriptions. Verify details.`,
         });
@@ -240,4 +257,4 @@ export async function POST(request: NextRequest) {
         const errorMessage = `An internal server error occurred: ${message}`;
         return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
-} 
+}
