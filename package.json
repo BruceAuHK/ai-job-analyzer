@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "scrape-data": "node scripts/scrape-and-save.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",
@@ -24,14 +25,16 @@
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
     "@tailwindcss/typography": "^0.5.16",
-    "@types/node": "^20",
+    "@types/node": "^20.17.32",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.21",
+    "dotenv": "^16.5.0",
     "eslint": "^9",
     "eslint-config-next": "15.3.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^4.1.4",
-    "typescript": "^5"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
   }
 }

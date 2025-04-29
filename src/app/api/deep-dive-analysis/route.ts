@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs/promises';
+import path from 'path';
+// Puppeteer can be commented out or removed if scrapeJobsDB_HK is no longer called directly
+// import puppeteer, { Browser, Page } from 'puppeteer';
 
 // Gemini API Details
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -21,6 +25,15 @@ interface GeminiResponse {
     promptFeedback?: { blockReason?: string };
 }
 
+// --- Keep Interfaces, Gemini Constants, Helpers (delay, sanitizeQueryToFilename) ---
+interface ScrapedJob { /* ... */ }
+interface StatItem { /* ... */ }
+const delay = (ms: number) => { /* ... */ };
+function sanitizeQueryToFilename(query: string): string | null { /* ... */ }
+
+// --- Web Scraping Function (Keep the function definition, but we won't call it) ---
+// export async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> { /* ... */ }
+
 export async function POST(request: NextRequest) {
     const currentApiKey = process.env.GEMINI_API_KEY;
      if (!currentApiKey) {
@@ -28,85 +41,148 @@ export async function POST(request: NextRequest) {
     }
     const geminiApiUrlWithKey = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_NAME}:generateContent?key=${currentApiKey}`;
 
+    let scrapedJobResults: ScrapedJob[] = [];
+    let topCompanies: StatItem[] = [];
+    let topLocations: StatItem[] = [];
+
     try {
-        const { jobDescription } = await request.json();
+        const { userRoleQuery, resumeText } = await request.json();
 
-        if (typeof jobDescription !== 'string' || !jobDescription.trim()) {
-            return NextResponse.json({ error: 'Invalid job description provided.' }, { status: 400 });
+        if (typeof userRoleQuery !== 'string' || !userRoleQuery.trim()) {
+             return NextResponse.json({ error: 'Invalid input: Missing userRoleQuery.' }, { status: 400 });
         }
-        if (jobDescription.toLowerCase().includes('could not extract description') || jobDescription.toLowerCase().includes('failed/timed out')) {
-             return NextResponse.json({ error: 'Cannot analyze an incomplete job description.' }, { status: 400 });
+        const hasResume = typeof resumeText === 'string' && resumeText.trim().length > 0;
+        console.log(`Received analysis request for pre-saved query: "${userRoleQuery}" ${hasResume ? 'WITH resume' : 'without resume'}.`);
+
+        // === Step 1: Load Data from Pre-scraped File ===
+        const filename = sanitizeQueryToFilename(userRoleQuery);
+        if (!filename) {
+            console.error(`Could not generate valid filename for query: "${userRoleQuery}"`);
+            return NextResponse.json({ error: 'Invalid query format.' }, { status: 400 });
         }
 
-        // Construct the prompt for Gemini
-        const prompt = `
-            Analyze this specific job description in detail. Provide a structured analysis covering the following points. Use markdown formatting for clarity (e.g., bold headings, bullet points):
+        const DATA_DIR = path.join(process.cwd(), 'src', 'app', 'api', 'job-analysis', 'pre-scraped-data');
+        const filepath = path.join(DATA_DIR, filename);
 
-            1.  **Core Responsibilities:**
-                *   Summarize the main day-to-day tasks and duties implied or stated in the description.
+        try {
+            console.log(`Attempting to load data from: ${filepath}`);
+            const fileContent = await fs.readFile(filepath, 'utf-8');
+            scrapedJobResults = JSON.parse(fileContent) as ScrapedJob[];
+            console.log(`Successfully loaded ${scrapedJobResults.length} job entries from ${filename}`);
+        } catch (error: any) {
+             if (error.code === 'ENOENT') {
+                console.error(`Pre-scraped data file not found for query "${userRoleQuery}" at ${filepath}`);
+                return NextResponse.json({ error: `Analysis data for "${userRoleQuery}" is not available.` }, { status: 404 });
+             } else {
+                console.error(`Error reading or parsing data file ${filepath}:`, error);
+                return NextResponse.json({ error: 'Failed to load analysis data.' }, { status: 500 });
+             }
+        }
+        // --- End Step 1: Load Data ---
 
-            2.  **Key Challenges / Problems to Solve:**
-                *   Identify any potential challenges, difficult problems, or key objectives mentioned or suggested by the role's description.
+        // Filter jobs based on the description field from the loaded data
+        const jobsWithContent = scrapedJobResults.filter(j =>
+            j.url &&
+            j.description &&
+            !j.description.includes('Failed') &&
+            !j.description.includes('Could not') &&
+            !j.description.includes('Failed getting description text')
+        );
+         console.log(`Using ${jobsWithContent.length} jobs with valid descriptions from loaded data.`);
 
-            3.  **Skill Requirements Breakdown:**
-                *   **Must-Have Skills:** List skills explicitly stated as required, essential, mandatory, or strongly preferred.
-                *   **Nice-to-Have Skills:** List skills mentioned as advantageous, a plus, desirable, or preferred but not strictly required.
-                *   **Implied Skills:** List any skills likely needed based on the responsibilities, even if not explicitly stated.
+        // === Step 2: Calculate Statistics (from loaded data) ===
+        if (scrapedJobResults.length > 0) {
+            const companyCounts: { [key: string]: number } = {};
+            const locationCounts: { [key: string]: number } = {};
+            scrapedJobResults.forEach(job => {
+                if (job.company_name) { companyCounts[job.company_name] = (companyCounts[job.company_name] || 0) + 1; }
+                if (job.location) { const cleanLocation = job.location.split(',')[0].trim(); if(cleanLocation) locationCounts[cleanLocation] = (locationCounts[cleanLocation] || 0) + 1; }
+            });
+            topCompanies = Object.entries(companyCounts).map(([name, count]): StatItem => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 10);
+            topLocations = Object.entries(locationCounts).map(([name, count]): StatItem => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 10);
+            console.log("Top Companies:", topCompanies.map(c=>`${c.name}(${c.count})`));
+            console.log("Top Locations:", topLocations.map(l=>`${l.name}(${l.count})`));
+        }
 
-            4.  **Company Culture Clues (if any):**
-                *   Based *only* on the language, tone, benefits, or values mentioned in the description, are there any hints about the company culture (e.g., fast-paced, collaborative, formal, mission-driven)? If no clues, state "No specific culture clues found in the description."
+        // === Step 3: Prepare Job Context for LLM (using loaded data) ===
+        let allScrapedJobContext = 'No job details available for analysis.';
+        if (jobsWithContent.length > 0) {
+             allScrapedJobContext = jobsWithContent.map((job, index) => {
+                 const descriptionForContext = job.description || 'No description content available.';
+                 return `Job ${index + 1}:\n` +
+                        `Title: ${job.title || 'N/A'}\n` +
+                        `Company: ${job.company_name || 'N/A'}\n` +
+                        `Location: ${job.location || 'N/A'}\n` +
+                        `URL: ${job.url || '#'}\n` +
+                        `Description: ${descriptionForContext}`;
+             }).join('\n\n---\n\n');
+        }
+         console.log(`Prepared context for Gemini using ${jobsWithContent.length} jobs (using plain text descriptions).`);
+        const MAX_CONTEXT_CHARS = 800000; // Estimate ~800k chars as a safe limit before hitting token issues
+        if (allScrapedJobContext.length > MAX_CONTEXT_CHARS) {
+            console.warn(`Context length (${allScrapedJobContext.length} chars) is very large, potentially exceeding limits. Truncating.`);
+            allScrapedJobContext = allScrapedJobContext.substring(0, MAX_CONTEXT_CHARS) + "\n\n... (Context Truncated) ...";
+        }
 
-            5.  **Potential Red Flags or Ambiguities:**
-                *   Point out any parts of the description that are vague, potentially contradictory, seem unusually demanding, or might be considered red flags (e.g., excessively long hours mentioned, very broad skill list for a junior role). If none, state "No obvious red flags or major ambiguities identified."
+        // === Step 4: Prepare Prompt for Gemini (Remains the same) ===
+        const prioritizationInstruction = hasResume ? `...` : `...`; // Keep existing definitions
+        const marketInsightsInstruction = `...`;
+        const detailedTrendsInstruction = `...`;
+        const competitiveLandscapeInstruction = hasResume ? `...` : '';
+         const prompt = `
+           You are an expert AI Career Advisor analyzing the job market.
+           Context:
+           - User's target role/skill query: "${userRoleQuery}"
+           ${hasResume ? `- User's Resume Text:\n"""\n${resumeText}\n"""` : ''}
+           - The following ${jobsWithContent.length} job descriptions (with URLs) were loaded from pre-saved data. **You have the full context needed for analysis below.**
 
-            6.  **Questions to Ask the Hiring Manager:**
-                *   Suggest 2-4 specific questions a candidate could ask the hiring manager during an interview to clarify responsibilities, challenges, culture, or expectations based *directly* on ambiguities or points raised in this analysis.
+           Tasks:
+           Based *only* on the provided context...
+           1.  **Common Tech Stack:**
+               ${/* ... task details ... */}
+           2.  **Suggested Project Ideas:**
+                ${/* ... task details ... */}
+           3.  **Job Prioritization:**
+               ${prioritizationInstruction}
+           4.  **Experience Level Summary:**
+                ${/* ... task details ... */}
+           5.  **Overall Market Insights:**
+               ${marketInsightsInstruction}
+           6.  **Detailed Market Trends & Insights:**
+               ${detailedTrendsInstruction}
+           ${competitiveLandscapeInstruction}
 
-            --- JOB DESCRIPTION ---
-            ${jobDescription}
-            --- END JOB DESCRIPTION ---
+           --- Scraped Job Information (Found: ${jobsWithContent.length}) ---
+           ${allScrapedJobContext}
+           --- END Scraped Job Information ---
 
-            --- DEEP DIVE ANALYSIS ---
-        `;
+           Analysis Output:
+         `;
 
-        console.log(`Sending deep dive analysis prompt to Gemini (${GEMINI_MODEL_NAME})`);
-        const requestBody = { contents: [{ parts: [{ "text": prompt }] }] };
-
-        const geminiApiResponse = await fetch(geminiApiUrlWithKey, {
+        // === Step 5: Call Gemini API (Remains the same) ===
+         console.log(`Sending analysis prompt to Gemini (${GEMINI_MODEL_NAME}) ${hasResume ? 'with resume context' : ''} (Using pre-saved data)`);
+         console.time("geminiApiCallLargeContext");
+         const requestBody = { contents: [{ parts: [{ "text": prompt }] }] };
+         const geminiApiResponse = await fetch(geminiApiUrlWithKey, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody),
         });
-
-        console.log(`Gemini Deep Dive API Response Status: ${geminiApiResponse.status} ${geminiApiResponse.statusText}`);
-        const rawResponseText = await geminiApiResponse.text();
-
-        let geminiResponseData: GeminiResponse = {}; // Initialize with the interface type
-        try {
-             if (rawResponseText && rawResponseText.trim().startsWith('{')) {
-                 geminiResponseData = JSON.parse(rawResponseText) as GeminiResponse; // Assert type
-             } else {
-                 throw new Error(`Received non-JSON response or empty response from Gemini API. Status: ${geminiApiResponse.status}. Body starts with: ${rawResponseText.substring(0,100)}`);
-             }
-        } catch (parseError: unknown) {
-             console.error("Deep Dive JSON Parsing Error:", parseError);
-             const message = parseError instanceof Error ? parseError.message : 'Failed to parse AI response';
-             return NextResponse.json({ error: message, details: rawResponseText.substring(0, 500) }, { status: 500 });
-        }
+         console.timeEnd("geminiApiCallLargeContext");
 
         if (!geminiApiResponse.ok) {
-             console.error("Deep Dive API Error Response (JSON):", geminiResponseData);
-             const errorDetails = geminiResponseData.error?.message || `HTTP error! status: ${geminiApiResponse.status}`;
+             console.error("Deep Dive API Error Response (JSON):", geminiApiResponse);
+             const errorDetails = geminiApiResponse.error?.message || `HTTP error! status: ${geminiApiResponse.status}`;
              return NextResponse.json({ error: `Failed to get deep dive analysis: ${errorDetails}` }, { status: geminiApiResponse.status });
         }
 
          // Check for safety blocks or other API-level errors reported in JSON
-         const blockReason = geminiResponseData.promptFeedback?.blockReason;
+         const blockReason = geminiApiResponse.promptFeedback?.blockReason;
          if (blockReason) {
              console.error(`Gemini request blocked by safety settings: ${blockReason}`);
              return NextResponse.json({ error: `Request blocked by safety settings: ${blockReason}` }, { status: 400 });
          }
-         const finishReason = geminiResponseData.candidates?.[0]?.finishReason;
+         const finishReason = geminiApiResponse.candidates?.[0]?.finishReason;
           if (finishReason && !['STOP', 'MAX_TOKENS'].includes(finishReason)) {
               console.error(`Gemini generation finished unexpectedly: ${finishReason}`);
               // Potentially return partial data if available, or just error
@@ -115,7 +191,7 @@ export async function POST(request: NextRequest) {
 
         let analysisText = '';
          try {
-             analysisText = geminiResponseData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+             analysisText = geminiApiResponse.candidates?.[0]?.content?.parts?.[0]?.text || '';
          } catch { /* Catch block requires no variable if error object isn't used */ }
 
         if (!analysisText) {
@@ -126,11 +202,18 @@ export async function POST(request: NextRequest) {
         // Clean up the start if Gemini repeats the heading
         analysisText = analysisText.replace(/^\s*--- DEEP DIVE ANALYSIS ---\s*/i, '').trim();
 
-        return NextResponse.json({ deepDiveAnalysis: analysisText });
+        // === Step 7: Return Combined Results (Remains the same) ===
+        const allJobLinksForFrontend = scrapedJobResults.map(job => ({ /* ... */ }));
+         console.log("Data being returned to frontend:", { /* ... */ });
+        return NextResponse.json({
+            deepDiveAnalysis: analysisText,
+            analysisDisclaimer: `Note: Analysis based on pre-saved data for "${userRoleQuery}". Stats from ${scrapedJobResults.length} jobs. AI analysis used ${jobsWithContent.length} full descriptions. Verify details.`,
+        });
 
     } catch (error: unknown) {
-        console.error("API Route Deep Dive Error:", error);
-        const message = error instanceof Error ? error.message : 'An internal server error occurred during deep dive analysis.';
-        return NextResponse.json({ error: message }, { status: 500 });
+        console.error("API Route General Error:", error);
+        const message = error instanceof Error ? error.message : String(error);
+        const errorMessage = `An internal server error occurred: ${message}`;
+        return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 } 

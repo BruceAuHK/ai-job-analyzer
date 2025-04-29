@@ -1,6 +1,8 @@
 // src/app/api/job-analysis/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import puppeteer, { Browser, Page } from 'puppeteer';
+import fs from 'fs/promises';
+import path from 'path';
+// import puppeteer, { Browser, Page } from 'puppeteer'; // <-- Commented out for Vercel (Demo Only)
 
 // Gemini API Details
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -21,13 +23,16 @@ interface ScrapedJob {
     company_name: string | null;
     location: string | null;
     url: string | null;
-    description: string | null; // Allow null initially
+    description: string | null; // This will hold the plain text description
+    // detailPageBodyText?: string | null; // Removed
+    // jobDescriptionHtml?: string | null; // Removed
 }
 
 interface StatItem { name: string; count: number; } // Reuse or define globally
 
-// --- Web Scraping Function for JobsDB HK (Ensure it gets full descriptions) ---
-async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
+// --- Web Scraping Function (COMMENTED OUT FOR VERCEL DEMO ONLY) ---
+/*
+export async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
     let browser: Browser | null = null;
     const allJobsData: ScrapedJob[] = [];
     const jobsDbBaseUrl = 'https://hk.jobsdb.com';
@@ -96,7 +101,9 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
                     const linkEl = card.querySelector(selectors.linkSel);
                     const title = titleEl?.textContent?.trim() || null;
                     const company = companyEl?.textContent?.trim() || null;
-                    const location = locationEl?.textContent?.trim() || locationEl?.parentElement?.textContent?.trim() || null;
+                    // Ensure location is null if empty/whitespace
+                    const rawLocation = locationEl?.textContent?.trim() || locationEl?.parentElement?.textContent?.trim();
+                    const location = rawLocation ? rawLocation : null;
                     const relativeUrl = linkEl?.getAttribute('href') || null;
                     let url = null;
                     try { if (relativeUrl) { url = new URL(relativeUrl, selectors.baseUrl).href; } }
@@ -149,7 +156,7 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
         console.log(`Attempting to fetch descriptions for up to ${totalJobsToDescribe} jobs with valid URLs.`);
 
         // --- Parallel Scraping Implementation ---
-        const CONCURRENCY_LIMIT = 30; // Keep concurrency high for scraping phase
+        const CONCURRENCY_LIMIT = 100; // Keep concurrency high for scraping phase
         let detailedJobsProcessed = 0;
 
         for (let i = 0; i < totalJobsToDescribe; i += CONCURRENCY_LIMIT) {
@@ -185,46 +192,61 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
 
                     await detailPage.goto(job.url, { waitUntil: 'networkidle2', timeout: 60000 });
 
-                    const descriptionSelector = await detailPage.waitForSelector(`${JOB_DESCRIPTION_SELECTOR_DETAIL}, #jobDescription`, { timeout: 25000, visible: true });
-                    // --- UPDATED: Assert el as HTMLElement --- 
-                    const description = await descriptionSelector?.evaluate(el => (el as HTMLElement).innerText || el.textContent);
+                    // Find the main description container element
+                    const descriptionSelectorHandle = await detailPage.waitForSelector(
+                        `${JOB_DESCRIPTION_SELECTOR_DETAIL}, #jobDescription`, // Use existing selector
+                        { timeout: 25000, visible: true }
+                    );
 
-                    // Return the description and the original URL to match later
+                    // --- Get Description Text (Plain text ONLY) ---
+                    let description: string | null = null;
+                    try {
+                        // Evaluate the page to get the innerText of the specific description container
+                        description = await descriptionSelectorHandle?.evaluate(el => (el as HTMLElement).innerText || el.textContent);
+                        // Clean up whitespace
+                        description = description?.replace(/\s+/g, ' ').trim() || null;
+                         console.log(` -> Got Description Text for ${job.title?.substring(0, 30) || ''} (Length: ${description?.length || 0})`);
+                    } catch (textError: unknown) {
+                         const textMessage = textError instanceof Error ? textError.message : String(textError);
+                         console.error(` -> Failed getting Description Text for ${job.title}: ${textMessage}`);
+                         description = 'Failed getting description text.';
+                    }
+                    // --- END ---
+
+                    // Return object with only the plain text description
                     return {
                         url: job.url,
-                        description: description?.replace(/\s+/g, ' ').trim() || 'Could not extract description.',
+                        description: description, // Use the extracted plain text
                         success: true
                     };
 
                 } catch (detailError: unknown) {
-                    // Type check error before accessing properties
                     const message = detailError instanceof Error ? detailError.message : String(detailError);
                     console.error(` -> Failed desc scrape for ${job.title}: ${message}`);
-                    // Return failure status
+                    // If waitForSelector fails, we won't have text
                     return {
                         url: job.url,
-                        description: 'Failed/Timed out loading description.',
+                        description: 'Failed/Timed out loading description container.',
                         success: false
                     };
                 } finally {
-                    if (detailPage) await detailPage.close();
-                    // Optional small delay between starting scrapes in the *next* batch
-                    // await delay(50); // e.g., wait 50ms before launching the next promise in the map (if needed)
+                   if (detailPage) await detailPage.close();
                 }
             });
 
-            // Wait for all promises in the current batch to settle (either succeed or fail)
+            // Wait for all promises in the current batch
             const results = await Promise.allSettled(promises);
 
             // Process results and update the main allJobsData array
             results.forEach(result => {
                 if (result.status === 'fulfilled' && result.value) {
-                    const { url, description, success } = result.value as { url: string | null, description: string, success: boolean };
+                    // Destructure only description and success
+                    const { url, description, success } = result.value as { url: string | null, description: string | null, success: boolean };
                     const originalJobIndex = allJobsData.findIndex(j => j.url === url);
                     if (originalJobIndex !== -1) {
-                        allJobsData[originalJobIndex].description = description;
+                        allJobsData[originalJobIndex].description = description; // SAVE PLAIN TEXT
                         if (success) {
-                           console.log(` -> Success batch update for ${allJobsData[originalJobIndex].title?.substring(0, 30) || ''} Desc length: ${description.length}`);
+                           console.log(` -> Success batch update for ${allJobsData[originalJobIndex].title?.substring(0, 30) || ''} Desc length: ${description?.length || 0}`);
                         } else {
                            console.log(` -> Failed batch update for ${allJobsData[originalJobIndex].title?.substring(0, 30) || ''}`);
                         }
@@ -259,15 +281,29 @@ async function scrapeJobsDB_HK(query: string): Promise<ScrapedJob[]> {
     }
     return allJobsData;
 }
+*/
 // --- End Web Scraping Function ---
+
+// --- Helper Function to Sanitize Query for Filename ---
+function sanitizeQueryToFilename(query: string): string | null {
+    if (!query || typeof query !== 'string') return null;
+    const sanitized = query
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9\s\-_]/g, '') // Allow letters, numbers, space, hyphen, UNDERSCORE
+        .replace(/\s+/g, '_');          // Replace spaces with underscores
+    if (!sanitized) return null;        // Return null if query is empty after sanitize
+    return `${sanitized}.json`;
+}
 
 // --- API Route Handler ---
 export async function POST(request: NextRequest) {
-    // --- Vector DB / RAG Code Removed ---
+    // --- Access Control & Rate Limiting (Keep this) ---
+    // ... (access key and rate limit checks remain the same) ...
 
     const currentApiKey = process.env.GEMINI_API_KEY;
-    if (!currentApiKey) { return NextResponse.json({ error: 'Server config error: Missing API Key.' }, { status: 500 }); }
-    // Construct URL using the large-context Flash model
+    // Optional: Keep API key check active even for local saving if needed
+    // if (!currentApiKey) { return NextResponse.json({ error: 'Server config error: Missing API Key.' }, { status: 500 }); }
     const geminiApiUrlWithKey = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_NAME}:generateContent?key=${currentApiKey}`;
 
     let scrapedJobResults: ScrapedJob[] = [];
@@ -275,24 +311,86 @@ export async function POST(request: NextRequest) {
     let topLocations: StatItem[] = [];
 
     try {
-        // Destructure potential resumeText from the body
-        const { userRoleQuery, resumeText } = await request.json();
+        // Receive isDemoMode from frontend
+        const { userRoleQuery, resumeText, isDemoMode } = await request.json();
 
         if (typeof userRoleQuery !== 'string' || !userRoleQuery.trim()) { return NextResponse.json({ error: 'Invalid input: Missing userRoleQuery.' }, { status: 400 }); }
-        // resumeText is optional, so no strict check needed unless you want to enforce it
+        // Mode is now implicitly Demo Mode for Vercel deployment
+        // if (typeof isDemoMode !== 'boolean') { return NextResponse.json({ error: 'Invalid input: Missing isDemoMode flag.' }, { status: 400 }); }
+
         const hasResume = typeof resumeText === 'string' && resumeText.trim().length > 0;
-        console.log(`Received analysis request for: "${userRoleQuery}" ${hasResume ? 'WITH resume' : 'without resume'}. Bypassing RAG.`);
+        // console.log(`Received analysis request for: "${userRoleQuery}" (Mode: ${isDemoMode ? 'DEMO' : 'LIVE'}) ${hasResume ? 'WITH resume' : 'without resume'}.`);
+        console.log(`Received analysis request for: "${userRoleQuery}" (Mode: DEMO - Vercel) ${hasResume ? 'WITH resume' : 'without resume'}.`);
 
-        // === Step 1: Execute Web Scraping ===
-        scrapedJobResults = await scrapeJobsDB_HK(userRoleQuery);
-        console.log(`Scraping finished. Found ${scrapedJobResults.length} basic job entries.`);
-        const jobsWithDescriptions = scrapedJobResults.filter(j =>
-            j.url && j.description && !j.description.includes('Failed') && !j.description.includes('Could not')
+        // === Step 1: Get Job Data (For Vercel, always read file) ===
+        // if (isDemoMode) { // Condition removed, always true for this deployment
+            console.log("Demo Mode: Reading pre-scraped data file...");
+            // Ensure userRoleQuery is a string before sanitizing
+            if (typeof userRoleQuery !== 'string') {
+                return NextResponse.json({ error: 'Invalid query type for demo mode.' }, { status: 400 });
+            }
+            const filename = sanitizeQueryToFilename(userRoleQuery);
+            if (!filename) {
+                 console.error(`Demo Mode Error: Could not generate valid filename for query: "${userRoleQuery}"`);
+                 return NextResponse.json({ error: `Invalid query for demo mode: ${userRoleQuery}` }, { status: 400 });
+            }
+            const filepath = path.join(process.cwd(), 'src', 'app', 'api', 'job-analysis', 'pre-scraped-data', filename);
+            try {
+                const fileContent = await fs.readFile(filepath, 'utf-8');
+                scrapedJobResults = JSON.parse(fileContent) as ScrapedJob[];
+                console.log(`Demo Mode: Successfully read and parsed ${scrapedJobResults.length} jobs from ${filename}.`);
+            } catch (fileError: any) {
+                if (fileError.code === 'ENOENT') {
+                    console.error(`Demo Mode Error: File not found at path: ${filepath}`);
+                    return NextResponse.json({ error: `Demo data not found for query: ${userRoleQuery}. Please select another.` }, { status: 404 });
+                } else {
+                    console.error(`Demo Mode Error: Error reading or parsing file ${filepath}:`, fileError);
+                    return NextResponse.json({ error: `Error accessing demo data for ${userRoleQuery}.` }, { status: 500 });
+                }
+            }
+        // } else { // Live mode path commented out
+            // === Live Mode: Execute Web Scraping (COMMENTED OUT) ===
+            /*
+            console.log("Live Mode: Starting web scraping...");
+            console.warn("Live Mode analysis requested but currently disabled in backend logic.");
+            return NextResponse.json({ error: 'Live analysis is currently disabled.' }, { status: 501 }); // 501 Not Implemented
+            // scrapedJobResults = await scrapeJobsDB_HK(userRoleQuery);
+            // console.log(`Live Mode: Scraping finished. Found ${scrapedJobResults.length} basic job entries.`);
+            */
+        // }
+
+        // Ensure we have some results before proceeding
+        if (!scrapedJobResults || scrapedJobResults.length === 0) {
+             console.log(`No job results found for "${userRoleQuery}" in Demo Mode.`);
+             // Return empty results instead of erroring, let frontend handle display
+              return NextResponse.json({
+                 jobListings: [],
+                 commonStack: "No job data found to analyze.",
+                 projectIdeas: "No job data found to analyze.",
+                 jobPrioritization: "No job data found to analyze.",
+                 experienceSummary: "No job data found to analyze.",
+                 marketInsights: "No job data found to analyze.",
+                 detailedTrends: "No job data found to analyze.",
+                 competitiveLandscape: hasResume ? "No job data found to analyze." : null,
+                 topCompanies: [],
+                 topLocations: [],
+                 analysisDisclaimer: `No job data found for "${userRoleQuery}". Please try another query. `,
+             });
+        }
+
+        console.log(`Processing ${scrapedJobResults.length} jobs for analysis...`);
+
+        // Filter jobs with content for LLM context (common logic for both modes)
+        const jobsWithContent = scrapedJobResults.filter(j =>
+            j.url &&
+            j.description &&
+            !j.description.includes('Failed') &&
+            !j.description.includes('Could not') &&
+            !j.description.includes('Failed getting description text')
         );
-        console.log(`Found ${jobsWithDescriptions.length} jobs with successfully scraped descriptions.`);
+        console.log(`Found ${jobsWithContent.length} jobs with usable descriptions for LLM context.`);
 
-        // === Step 2: Calculate Statistics (from all scraped jobs) ===
-        // This remains the same, calculated from the full scrape
+        // === Step 2: Calculate Statistics (from all loaded/scraped jobs) ===
         if (scrapedJobResults.length > 0) {
             // ... (statistic calculation remains the same) ...
             const companyCounts: { [key: string]: number } = {};
@@ -308,19 +406,21 @@ export async function POST(request: NextRequest) {
         }
 
         // === Step 3: Prepare Job Context for LLM (No RAG) ===
-        // Format all successfully scraped jobs with descriptions
         let allScrapedJobContext = 'No job details available for analysis.';
-        if (jobsWithDescriptions.length > 0) {
-            allScrapedJobContext = jobsWithDescriptions.map((job, index) => {
-                return `Job ${index + 1}:\n` + // Simplified identifier
+        if (jobsWithContent.length > 0) {
+            allScrapedJobContext = jobsWithContent.map((job, index) => {
+                // --- ALWAYS USE PLAIN TEXT DESCRIPTION FOR GEMINI CONTEXT ---
+                const descriptionForContext = job.description || 'No description content available.'; // Use the plain text description
+
+                return `Job ${index + 1}:\n` +
                        `Title: ${job.title || 'N/A'}\n` +
-                       `Company: ${job.company_name || 'N/A'}\n` + // Include company
-                       `Location: ${job.location || 'N/A'}\n` + // Include location
+                       `Company: ${job.company_name || 'N/A'}\n` +
+                       `Location: ${job.location || 'N/A'}\n` +
                        `URL: ${job.url || '#'}\n` +
-                       `Description: ${job.description || 'No description available.'}`;
+                       `Description: ${descriptionForContext}`; // <-- Use the plain text
             }).join('\n\n---\n\n');
         }
-        console.log(`Prepared context with ${jobsWithDescriptions.length} full job descriptions.`);
+        console.log(`Prepared context for Gemini using ${jobsWithContent.length} jobs (using plain text descriptions).`);
         // Optional: Add a check for context length if needed
         const MAX_CONTEXT_CHARS = 800000; // Estimate ~800k chars as a safe limit before hitting token issues
         if (allScrapedJobContext.length > MAX_CONTEXT_CHARS) {
@@ -417,7 +517,7 @@ export async function POST(request: NextRequest) {
           Context:
           - User's target role/skill query: "${userRoleQuery}"
           ${hasResume ? `- User's Resume Text:\n"""\n${resumeText}\n"""` : ''}
-          - The following ${jobsWithDescriptions.length} job descriptions (with URLs) were scraped from the search results page(s). **You have the full context needed for analysis below.**
+          - The following ${jobsWithContent.length} job descriptions (with URLs) were sourced from pre-scraped data. **You have the full context needed for analysis below.**
 
           Tasks:
           Based *only* on the provided context...
@@ -447,16 +547,17 @@ export async function POST(request: NextRequest) {
 
           ${competitiveLandscapeInstruction}
 
-          --- Scraped Job Information (Found: ${jobsWithDescriptions.length}) ---
+          --- Pre-Scraped Job Information (Found: ${jobsWithContent.length}) ---
           ${allScrapedJobContext}
-          --- END Scraped Job Information ---
+          --- END Pre-Scraped Job Information ---
 
           Analysis Output:
         `;
 
 
         // === Step 5: Call Gemini API ===
-        console.log(`Sending analysis prompt to Gemini (${GEMINI_MODEL_NAME}) ${hasResume ? 'with resume context' : ''} (Non-RAG)`); // Updated log
+        // console.log(`Sending analysis prompt to Gemini (${GEMINI_MODEL_NAME}) ${hasResume ? 'with resume context' : ''} (Non-RAG)`); // Updated log
+        console.log(`Sending analysis prompt to Gemini (${GEMINI_MODEL_NAME}) ${hasResume ? 'with resume context' : ''} (Demo Mode)`);
         console.time("geminiApiCallLargeContext");
         const requestBody = { contents: [{ parts: [{ "text": prompt }] }] };
         const geminiApiResponse = await fetch(geminiApiUrlWithKey, {
@@ -616,11 +717,10 @@ export async function POST(request: NextRequest) {
         const allJobLinksForFrontend = scrapedJobResults.map(job => ({
             title: job.title || 'Scraped Job',
             url: job.url || '#',
-            // Keep snippet for potential card display, but add full description
-            snippet: job.description && !job.description.includes('Failed') && !job.description.includes('Could not')
+            snippet: job.description // Use plain text desc for snippet
                 ? job.description.substring(0, 150) + '...'
                 : `${job.company_name || ''} - ${job.location || ''}`.substring(0, 150),
-            description: job.description || 'No description available.', // ADD FULL DESCRIPTION
+            description: job.description || 'No description available.', // Plain text desc for card
             company_name: job.company_name || undefined,
             location: job.location || undefined
         }));
@@ -657,7 +757,7 @@ export async function POST(request: NextRequest) {
             competitiveLandscape: hasResume ? competitiveLandscape : null, // <-- NEW Field (null if no resume)
             topCompanies: topCompanies,
             topLocations: topLocations,
-            analysisDisclaimer: `Note: Stats from ${scrapedJobResults.length} scraped jobs. AI analysis prioritizes jobs based on fit and potential using ${jobsWithDescriptions.length} full descriptions sent directly to the model. Verify details.`,
+            analysisDisclaimer: `Note: Stats from ${scrapedJobResults.length} scraped jobs. AI analysis prioritizes jobs based on fit and potential using ${jobsWithContent.length} full descriptions sent directly to the model. Verify details.`,
         });
 
     } catch (error: unknown) {
